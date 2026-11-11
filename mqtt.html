@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>IotBench — MQTT Broker</title>
+<style>
+  :root { --bg:#0f172a; --card:#1e293b; --line:#334155; --txt:#e2e8f0; --mut:#94a3b8;
+          --acc:#38bdf8; --ok:#22c55e; --warn:#f59e0b; --bad:#ef4444; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--txt); padding:24px; }
+  a { color:var(--acc); text-decoration:none; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .sub { color:var(--mut); font-size:13px; margin-bottom:16px; }
+  .statusbar { padding:12px 14px; border-radius:8px; font-size:13px; margin-bottom:16px; border:1px solid var(--line); }
+  .s-on { background:rgba(34,197,94,.12); color:var(--ok); }
+  .s-err { background:rgba(239,68,68,.12); color:var(--bad); }
+  .connect { font-family:ui-monospace,Consolas,monospace; color:var(--txt); background:#0b1220; border:1px dashed var(--acc);
+             padding:8px 10px; border-radius:6px; margin-top:8px; display:inline-block; }
+  .cols { display:grid; grid-template-columns:1fr 1fr; gap:16px; align-items:start; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; margin-bottom:16px; }
+  .card h2 { font-size:13px; margin:0 0 12px; color:var(--acc); text-transform:uppercase; letter-spacing:.04em; }
+  .chip { display:inline-block; background:rgba(56,189,248,.12); color:var(--acc); border:1px solid var(--line);
+          border-radius:20px; padding:3px 10px; font-size:12px; margin:0 6px 6px 0; font-family:ui-monospace,Consolas,monospace; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th,td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); }
+  th { color:var(--mut); font-weight:600; font-size:11px; text-transform:uppercase; }
+  td.kg { font-family:ui-monospace,Consolas,monospace; }
+  .st0{color:var(--mut);} .st1{color:var(--warn);} .st2{color:var(--ok);font-weight:600;}
+  .log { background:#0b1220; border:1px solid var(--line); border-radius:10px; padding:12px;
+         font-family:ui-monospace,Consolas,monospace; font-size:12px; height:340px; overflow-y:auto; white-space:pre-wrap; word-break:break-all; }
+  .muted { color:var(--mut); font-size:12px; }
+  .big { font-size:15px; }
+</style>
+</head>
+<body>
+  <h1>IotBench — MQTT Broker <span class="chip" id="cliCount">0 clients</span></h1>
+  <div class="sub">A local MQTT broker on port 1883. Point your ESP32 here and watch what it publishes. &nbsp;·&nbsp; <a href="/">Reply editor</a> &nbsp;·&nbsp; <a href="/scales">Scale panel</a> &nbsp;·&nbsp; <a href="/furnace">Furnace/Bunker publisher</a> &nbsp;·&nbsp; <a href="/crane">Bin/Crane data</a></div>
+
+  <div class="statusbar s-err" id="statusbar">starting broker…</div>
+
+  <div class="cols">
+    <div>
+      <div class="card">
+        <h2>Latest bin snapshot</h2>
+        <div id="snapWrap"><div class="muted">No message yet. Once the ESP32 publishes, the parsed bins show here.</div></div>
+        <div class="muted" id="snapMeta" style="margin-top:8px;"></div>
+      </div>
+      <div class="card">
+        <h2>Connected clients</h2>
+        <div id="clients"><span class="muted">none</span></div>
+      </div>
+    </div>
+    <div>
+      <div class="card" style="margin-bottom:8px;">
+        <h2>Message feed</h2>
+        <div class="log" id="log"></div>
+      </div>
+    </div>
+  </div>
+
+<script>
+let lastSeq = 0;
+const logLines = [];
+const ST_LABEL = { '0':'idle', '1':'armed', '2':'logged' };
+
+function renderStatus(st, ips){
+  const el=document.getElementById('statusbar');
+  if(st.listening){
+    el.className='statusbar s-on';
+    const list = (ips&&ips.length) ? ips.map(x=>x.ip).join(', ') : 'this PC';
+    el.innerHTML = '● MQTT broker listening on port '+st.port+
+      '<br><span class="muted">In the ESP32 firmware set:</span> '+
+      '<span class="connect">mqttBroker = "'+(ips&&ips[0]?ips[0].ip:'&lt;PC-IP&gt;')+'"  ·  mqttPort = '+st.port+'</span>'+
+      (ips&&ips.length>1 ? '<div class="muted" style="margin-top:6px;">other IPs: '+list+'</div>' : '');
+  } else {
+    el.className='statusbar s-err';
+    el.textContent='✕ broker not listening'+(st.error?(' — '+st.error):'');
+  }
+}
+
+function renderSnapshot(latest){
+  const wrap=document.getElementById('snapWrap');
+  const meta=document.getElementById('snapMeta');
+  if(!latest){ return; }
+  const d=latest.data;
+  if(d && (d.B1!==undefined)){
+    const st = (d.ST||'').toString();
+    let rows='';
+    for(let n=1;n<=6;n++){
+      const g=Number(d['B'+n]||0);
+      const s=st[n-1]||'0';
+      rows+='<tr><td>Bin '+n+'</td><td class="kg">'+g+' g</td><td class="kg">'+(g/1000).toFixed(3)+' kg</td>'+
+            '<td class="st'+s+'">'+s+' ('+(ST_LABEL[s]||'?')+')</td></tr>';
+    }
+    wrap.innerHTML='<table><thead><tr><th>Bin</th><th>Grams</th><th>Kg</th><th>State</th></tr></thead><tbody>'+rows+'</tbody></table>';
+  } else {
+    wrap.innerHTML='<div class="muted">Payload (not bin-JSON):</div><div class="big" style="font-family:ui-monospace,Consolas,monospace;margin-top:6px;">'+latest.payload+'</div>';
+  }
+  const ago=Math.round((Date.now()-latest.at)/100)/10;
+  meta.textContent='topic: '+latest.topic+'  ·  from: '+latest.clientId+'  ·  '+ago+'s ago';
+}
+
+function renderClients(cl){
+  const el=document.getElementById('clients');
+  const active=cl.filter(c=>!c.disconnectedAt || c.disconnectedAt<c.connectedAt);
+  document.getElementById('cliCount').textContent=active.length+' client'+(active.length===1?'':'s');
+  if(!cl.length){ el.innerHTML='<span class="muted">none</span>'; return; }
+  el.innerHTML=cl.map(c=>{
+    const on = !c.disconnectedAt || c.disconnectedAt<c.connectedAt;
+    return '<span class="chip" style="'+(on?'':'opacity:.45')+'">'+(on?'● ':'○ ')+c.id+'</span>';
+  }).join('');
+}
+
+function pushLog(msgs){
+  if(!msgs||!msgs.length) return;
+  const box=document.getElementById('log');
+  const atBottom = box.scrollTop+box.clientHeight >= box.scrollHeight-10;
+  msgs.forEach(m=>{
+    lastSeq=Math.max(lastSeq,m.seq);
+    logLines.push('['+m.t+'] '+m.clientId+' → '+m.topic+'  '+m.payload);
+  });
+  while(logLines.length>200) logLines.shift();
+  box.textContent=logLines.join('\n');
+  if(atBottom) box.scrollTop=box.scrollHeight;
+}
+
+async function poll(){
+  try{
+    const r=await fetch('/api/mqtt?since='+lastSeq); const j=await r.json();
+    renderStatus(j.status, j.hostIps);
+    renderClients(j.clients||[]);
+    if(j.latest) renderSnapshot(j.latest);
+    pushLog(j.messages);
+  }catch(e){}
+}
+setInterval(poll,700);
+poll();
+</script>
+</body>
+</html>

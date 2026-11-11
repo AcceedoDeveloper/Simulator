@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>IotBench — Reply Editor</title>
+<style>
+  :root { --bg:#0f172a; --card:#1e293b; --line:#334155; --txt:#e2e8f0; --mut:#94a3b8;
+          --acc:#38bdf8; --ok:#22c55e; --warn:#f59e0b; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,Segoe UI,Roboto,sans-serif; background:var(--bg);
+         color:var(--txt); padding:24px; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .sub { color:var(--mut); font-size:13px; margin-bottom:20px; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:20px; align-items:start; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:18px; margin-bottom:20px; }
+  .card h2 { font-size:14px; margin:0 0 14px; color:var(--acc); text-transform:uppercase; letter-spacing:.04em; }
+  .fields { display:grid; grid-template-columns:1fr 1fr; gap:10px 14px; }
+  .f { display:flex; flex-direction:column; gap:3px; }
+  .f label { font-size:12px; color:var(--mut); }
+  .f .w { font-size:10px; color:var(--line); }
+  input[type=text], textarea, select { background:#0b1220; border:1px solid var(--line); color:var(--txt);
+         border-radius:6px; padding:7px 9px; font-family:ui-monospace,Consolas,monospace; font-size:13px; width:100%; }
+  input:focus, textarea:focus, select:focus { outline:none; border-color:var(--acc); }
+  input[readonly] { background:#111a2b; color:var(--mut); border-style:dashed; }
+  textarea { resize:vertical; min-height:52px; }
+  .row { display:flex; align-items:center; gap:8px; margin-bottom:12px; }
+  .row input[type=checkbox] { width:16px; height:16px; }
+  .dim { opacity:.4; pointer-events:none; }
+  .preview { background:#0b1220; border:1px solid var(--line); border-radius:8px; padding:14px;
+         font-family:ui-monospace,Consolas,monospace; font-size:14px; word-break:break-all; color:var(--ok); }
+  .muted { color:var(--mut); font-size:12px; }
+  .stat { font-family:ui-monospace,Consolas,monospace; font-size:12px; word-break:break-all; }
+  .badge { display:inline-block; padding:2px 8px; border-radius:20px; font-size:12px; font-weight:600; }
+  .live { background:rgba(34,197,94,.15); color:var(--ok); }
+  .idle { background:rgba(148,163,184,.15); color:var(--mut); }
+  .k { color:var(--mut); }
+  button { background:var(--acc); color:#03293b; border:0; border-radius:6px; padding:9px 16px;
+         font-weight:600; cursor:pointer; font-size:13px; }
+  button.ghost { background:transparent; color:var(--mut); border:1px solid var(--line); }
+  .actions { display:flex; gap:10px; margin:4px 0 0; align-items:center; }
+  .saved { color:var(--ok); font-size:12px; opacity:0; transition:opacity .2s; }
+  .saved.show { opacity:1; }
+  .tag { font-size:11px; color:var(--warn); }
+</style>
+</head>
+<body>
+  <h1>IotBench <span class="badge idle" id="liveBadge">waiting for board…</span></h1>
+  <div class="sub">Server replies to the board with the frame below. The ESP32 appends <code>,11,22,33,44#</code> before the STM32. Changes apply automatically. &nbsp;·&nbsp; <a href="/scales" style="color:var(--acc)">→ Scale panel</a> &nbsp;·&nbsp; <a href="/mqtt" style="color:var(--acc)">→ MQTT</a> &nbsp;·&nbsp; <a href="/furnace" style="color:var(--acc)">→ Furnace/Bunker</a> &nbsp;·&nbsp; <a href="/crane" style="color:var(--acc)">→ Bin/Crane data</a></div>
+
+  <div class="grid">
+    <!-- LEFT -->
+    <div>
+      <div class="card">
+        <h2>Raw reply (replay a captured sample)</h2>
+        <div class="row">
+          <input type="checkbox" id="rawMode" />
+          <label for="rawMode">Send this exact string (overrides the fields below)</label>
+        </div>
+        <div class="f" style="margin-bottom:10px;">
+          <label>Pick a captured sample</label>
+          <select id="samplePick"><option value="">— choose a sample —</option></select>
+        </div>
+        <div class="f">
+          <label>Reply string (editable)</label>
+          <textarea id="rawReply" placeholder="$022,05/07/26_15:38:03,00920,...,001,01,01,00"></textarea>
+        </div>
+      </div>
+
+      <div class="card" id="fieldCard">
+        <h2>Field builder <span id="fieldHint" class="tag"></span></h2>
+        <div class="fields" id="valueFields"></div>
+      </div>
+
+      <div class="card" id="timeCard">
+        <h2>Date / Time</h2>
+        <div class="row">
+          <input type="checkbox" id="autoTime" />
+          <label for="autoTime">Use server clock (auto)</label>
+        </div>
+        <div class="fields time" id="timeFields"></div>
+      </div>
+
+      <div class="actions">
+        <button id="applyBtn">Apply now</button>
+        <button class="ghost" id="resetBtn">Zero fields</button>
+        <span class="saved" id="savedMsg">applied ✓</span>
+      </div>
+    </div>
+
+    <!-- RIGHT -->
+    <div>
+      <div class="card">
+        <h2>Reply frame preview</h2>
+        <div class="row">
+          <input type="checkbox" id="appendHash" />
+          <label for="appendHash">Terminate with <code>#</code> (matches real server)</label>
+        </div>
+        <div class="preview" id="preview">$…</div>
+        <div class="muted" id="len" style="margin-top:8px;"></div>
+        <div class="muted" style="margin-top:6px;">STM32 will receive: <span id="withAppend" style="color:var(--warn)"></span></div>
+      </div>
+
+      <div class="card">
+        <h2>Board activity</h2>
+        <div class="stat"><span class="k">POSTs received:</span> <b id="count">0</b></div>
+        <div class="stat" style="margin-top:8px;"><span class="k">Last from:</span> <span id="from">-</span></div>
+        <div class="stat" style="margin-top:4px;"><span class="k">Last at:</span> <span id="at">-</span></div>
+        <div class="stat" style="margin-top:8px;"><span class="k">Last body:</span><br><span id="body">-</span></div>
+        <div class="stat" style="margin-top:8px;"><span class="k">Last reply sent:</span><br><span id="reply" style="color:var(--ok)">-</span></div>
+      </div>
+    </div>
+  </div>
+
+<script>
+const SAMPLES = [
+  "$022,05/07/26_15:38:03,00920,00000,00000975,200,220,180,271841,0000434106,001,01,01,00",
+  "$022,05/07/26_15:38:15,00116,00009,00001025,200,220,180,271838,000430243R,001,01,01,00",
+  "$028,05/07/26_15:39:08,00144,00007,00003000,200,220,180,271700,0T20120 10,001,01,01,00",
+  "$030,05/07/26_15:39:12,00497,00003,00000500,200,220,180,271699,000432164R,001,01,02,00",
+  "$022,05/07/26_15:39:27,00444,00006,00001205,200,220,180,270998,000430233R,001,01,01,00",
+  "$027,02/07/26_21:59:59,00395,00000,00037574,200,220,180,269666,0000432001,001,01,01,00",
+  "$034,02/07/26_21:59:50,00013,00000,00001358,200,220,180,269752,0000432313,001,01,02,00",
+  "$060,02/07/26_21:59:42,00180,00000,00005540,200,220,180,269676,0000430088,001,01,01,00",
+  "$063,02/07/26_21:59:31,00105,00000,00000462,200,220,180,267994,0000432057,001,01,01,00",
+  "$063,02/07/26_21:59:31,00179,00000,00002492,200,220,180,269680,0000430098,001,01,01,00",
+  "$045,02/07/26_21:59:33,00208,00000,00003934,200,220,180,271698,0000430096,001,01,01,00",
+  "$054,02/07/26_21:59:31,00005,00000,00001340,200,220,180,270680,0085004465,001,01,02,00",
+  "$063,02/07/26_21:59:59,00026,00000,00000364,200,220,180,266094,0000432047,001,01,02,00",
+  "$129,02/07/26_17:40:23,00000,00000,00000436,200,220,180,270988,0000433013,001,01,01,00",
+  "$077,02/07/26_21:59:43,00000,00000,00002147,200,220,180,269688,0000430004,001,01,02,00",
+  "$029,02/07/26_21:59:42,00001,00000,00000656,200,220,180,269752,0000432313,001,01,02,00",
+  "$171,02/07/26_21:59:59,00480,00000,00000171,200,220,180,270466,M09570B010,001,01,01,00",
+  "$097,02/07/26_21:59:55,00004,00000,00000105,200,220,180,271007,0008500736,001,01,02,00",
+  "$171,02/07/26_21:59:59,00000,00000,00000171,200,220,180,270469,M09570B010,001,01,01,00",
+  "$144,02/07/26_21:59:50,00575,00000,00000207,200,220,180,270527,0R18019 07,001,01,01,00"
+];
+
+const VALUE_FIELDS = [
+  {key:'lead',      label:'Lead field',        w:3},
+  {key:'prod',      label:'Production total',  w:5},
+  {key:'rej',       label:'Rejection total',   w:5},
+  {key:'batch',     label:'Batch target qty',  w:8},
+  {key:'tSet',      label:'Temp set',          w:3},
+  {key:'tHi',       label:'Temp high',         w:3},
+  {key:'tLo',       label:'Temp low',          w:3},
+  {key:'reqId',     label:'Requirement ID',    w:6},
+  {key:'itemNo',    label:'Item number (alnum)', w:10, raw:true},
+  {key:'batchNo',   label:'Trailing 1',        w:3},
+  {key:'reset',     label:'Trailing 2',        w:2},
+  {key:'startStop', label:'Trailing 3',        w:2},
+  {key:'reason',    label:'Trailing 4',        w:2},
+];
+const TIME_FIELDS = [
+  {key:'DD',label:'Day',w:2},{key:'MM',label:'Month',w:2},{key:'YY',label:'Year',w:2},
+  {key:'HH',label:'Hour',w:2},{key:'Min',label:'Minute',w:2},{key:'SS',label:'Second',w:2},
+];
+
+let config = {};
+
+function cfixed(v,w){ return String(v).replace(/[^0-9]/g,'').padStart(w,'0').slice(-w); }
+function cpadRaw(v,w){ return String(v).padStart(w,'0').slice(-w); }
+function two(n){ return String(n).padStart(2,'0'); }
+
+/* Parse a reply string back into individual fields (for the decipher view). */
+function parseFrame(str){
+  let s=String(str||'').trim();
+  if(s.startsWith('$')) s=s.slice(1);
+  if(s.endsWith('#')) s=s.slice(0,-1);
+  const t=s.split(',');
+  if(t.length<14) return null;               // not a full frame
+  const dt=(t[1]||'').split('_');            // "DD/MM/YY" _ "HH:MM:SS"
+  const d=(dt[0]||'').split('/');
+  const tm=(dt[1]||'').split(':');
+  return {
+    lead:t[0], DD:d[0]||'', MM:d[1]||'', YY:d[2]||'',
+    HH:tm[0]||'', Min:tm[1]||'', SS:tm[2]||'',
+    prod:t[2], rej:t[3], batch:t[4], tSet:t[5], tHi:t[6], tLo:t[7],
+    reqId:t[8], itemNo:t[9], batchNo:t[10], reset:t[11], startStop:t[12], reason:t[13]
+  };
+}
+
+/* Fill the Field builder from the current raw string so it can be deciphered. */
+function applyRawToFields(){
+  const parsed=parseFrame(config.rawReply);
+  if(parsed){
+    Object.assign(config,parsed);
+    config.autoTime=false;
+    document.getElementById('autoTime').checked=false;
+  }
+  renderFields();
+}
+
+function buildPreview(cfg){
+  let frame;
+  if(cfg.rawMode && cfg.rawReply && String(cfg.rawReply).trim()){
+    frame=String(cfg.rawReply).trim();
+  } else {
+    let DD,MM,YY,HH,Min,SS;
+    if(cfg.autoTime){
+      const n=new Date();
+      DD=two(n.getDate());MM=two(n.getMonth()+1);YY=two(n.getFullYear()%100);
+      HH=two(n.getHours());Min=two(n.getMinutes());SS=two(n.getSeconds());
+    } else {
+      DD=cfixed(cfg.DD,2);MM=cfixed(cfg.MM,2);YY=cfixed(cfg.YY,2);
+      HH=cfixed(cfg.HH,2);Min=cfixed(cfg.Min,2);SS=cfixed(cfg.SS,2);
+    }
+    frame='$'+cfixed(cfg.lead,3)+','+DD+'/'+MM+'/'+YY+'_'+HH+':'+Min+':'+SS+','+
+      cfixed(cfg.prod,5)+','+cfixed(cfg.rej,5)+','+cfixed(cfg.batch,8)+','+
+      cfixed(cfg.tSet,3)+','+cfixed(cfg.tHi,3)+','+cfixed(cfg.tLo,3)+','+
+      cfixed(cfg.reqId,6)+','+cpadRaw(cfg.itemNo,10)+','+
+      cfixed(cfg.batchNo,3)+','+cfixed(cfg.reset,2)+','+cfixed(cfg.startStop,2)+','+cfixed(cfg.reason,2);
+  }
+  if(cfg.appendHash && !frame.endsWith('#')) frame+='#';
+  return frame;
+}
+
+function renderFields(){
+  const vf=document.getElementById('valueFields');
+  const tf=document.getElementById('timeFields');
+  vf.innerHTML=''; tf.innerHTML='';
+  const make=(f,parent)=>{
+    const d=document.createElement('div'); d.className='f';
+    d.innerHTML='<label>'+f.label+' <span class="w">('+f.w+')</span></label>'+
+      '<input type="text" maxlength="'+f.w+'" data-key="'+f.key+'">';
+    parent.appendChild(d);
+    const inp=d.querySelector('input');
+    inp.value=config[f.key]||'';
+    inp.readOnly=!!config.rawMode;   // read-only decipher view when raw mode is on
+    inp.addEventListener('input',()=>{ config[f.key]=inp.value; onChange(); });
+  };
+  VALUE_FIELDS.forEach(f=>make(f,vf));
+  TIME_FIELDS.forEach(f=>make(f,tf));
+}
+
+function refreshPreview(){
+  const frame=buildPreview(config);
+  document.getElementById('preview').textContent=frame;
+  document.getElementById('len').textContent=frame.length+' bytes (server sends this; no #)';
+  document.getElementById('withAppend').textContent=frame+',11,22,33,44#';
+  document.getElementById('timeCard').classList.toggle('dim', !!config.autoTime);
+  document.getElementById('fieldCard').classList.remove('dim');
+  document.getElementById('fieldHint').textContent = config.rawMode ? '— parsed from the exact string (read-only)' : '';
+}
+
+let saveTimer=null;
+function onChange(){
+  refreshPreview();
+  clearTimeout(saveTimer);
+  saveTimer=setTimeout(saveConfig, 250);
+}
+
+async function saveConfig(){
+  const r=await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(config)});
+  if(r.ok){ const m=document.getElementById('savedMsg'); m.classList.add('show'); setTimeout(()=>m.classList.remove('show'),700); }
+}
+
+async function loadConfig(){
+  const r=await fetch('/api/config'); const j=await r.json();
+  config=j.config;
+  document.getElementById('autoTime').checked=!!config.autoTime;
+  document.getElementById('rawMode').checked=!!config.rawMode;
+  document.getElementById('appendHash').checked=!!config.appendHash;
+  document.getElementById('rawReply').value=config.rawReply||'';
+  if(config.rawMode && config.rawReply) applyRawToFields();
+  renderFields(); refreshPreview();
+}
+
+/* wire up sample picker */
+const pick=document.getElementById('samplePick');
+SAMPLES.forEach((s,i)=>{ const o=document.createElement('option'); o.value=s; o.textContent=(i+1)+': '+s.slice(0,32)+'…'; pick.appendChild(o); });
+pick.addEventListener('change',()=>{
+  if(pick.value){
+    config.rawReply=pick.value;
+    config.rawMode=true;
+    document.getElementById('rawReply').value=pick.value;
+    document.getElementById('rawMode').checked=true;
+    applyRawToFields();      // decipher into the Field builder
+    onChange();
+  }
+});
+document.getElementById('rawReply').addEventListener('input',(e)=>{ config.rawReply=e.target.value; if(config.rawMode) applyRawToFields(); onChange(); });
+document.getElementById('rawMode').addEventListener('change',(e)=>{ config.rawMode=e.target.checked; if(config.rawMode) applyRawToFields(); else renderFields(); onChange(); });
+document.getElementById('appendHash').addEventListener('change',(e)=>{ config.appendHash=e.target.checked; onChange(); });
+document.getElementById('autoTime').addEventListener('change',(e)=>{ config.autoTime=e.target.checked; onChange(); });
+document.getElementById('applyBtn').addEventListener('click',saveConfig);
+document.getElementById('resetBtn').addEventListener('click',()=>{
+  VALUE_FIELDS.forEach(f=>config[f.key]='0');
+  renderFields(); onChange();
+});
+
+async function poll(){
+  try{
+    const r=await fetch('/api/status'); const s=await r.json();
+    document.getElementById('count').textContent=s.count;
+    document.getElementById('from').textContent=s.lastFrom||'-';
+    document.getElementById('at').textContent=s.lastAt||'-';
+    document.getElementById('body').textContent=s.lastBody||'-';
+    document.getElementById('reply').textContent=s.lastReply||'-';
+    const badge=document.getElementById('liveBadge');
+    if(s.count>0 && s.lastAt && (Date.now()-new Date(s.lastAt).getTime())<4000){
+      badge.className='badge live'; badge.textContent='board live ('+s.count+' posts)';
+    } else {
+      badge.className='badge idle'; badge.textContent='no recent posts';
+    }
+  }catch(e){}
+}
+
+loadConfig();
+setInterval(poll,1000);
+poll();
+</script>
+</body>
+</html>

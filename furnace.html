@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>IotBench — Display Publisher</title>
+<style>
+  :root { --bg:#0f172a; --card:#1e293b; --line:#334155; --txt:#e2e8f0; --mut:#94a3b8;
+          --acc:#38bdf8; --ok:#22c55e; --warn:#f59e0b; --bad:#ef4444; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--txt); padding:24px; }
+  a { color:var(--acc); text-decoration:none; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .sub { color:var(--mut); font-size:13px; margin-bottom:16px; }
+  .statusbar { padding:12px 14px; border-radius:8px; font-size:13px; margin-bottom:16px; border:1px solid var(--line); }
+  .s-on { background:rgba(34,197,94,.12); color:var(--ok); }
+  .s-err { background:rgba(239,68,68,.12); color:var(--bad); }
+  .connect { font-family:ui-monospace,Consolas,monospace; color:var(--txt); background:#0b1220; border:1px dashed var(--acc);
+             padding:8px 10px; border-radius:6px; margin-top:8px; display:inline-block; }
+  .cols { display:grid; grid-template-columns:1fr 1fr; gap:16px; align-items:start; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; margin-bottom:16px; }
+  .card h2 { font-size:13px; margin:0 0 12px; color:var(--acc); text-transform:uppercase; letter-spacing:.04em; }
+  label { display:block; font-size:12px; color:var(--mut); margin:12px 0 4px; }
+  label:first-of-type { margin-top:0; }
+  input[type=text] { width:100%; background:#0b1220; border:1px solid var(--line); border-radius:6px; color:var(--txt);
+        padding:8px 10px; font-size:14px; font-family:ui-monospace,Consolas,monospace; }
+  .charcount { font-size:11px; color:var(--mut); margin-top:3px; font-family:ui-monospace,Consolas,monospace; }
+  .charcount.over { color:var(--warn); }
+  .quick { margin-top:6px; display:flex; flex-wrap:wrap; gap:6px; }
+  .quick button { background:rgba(56,189,248,.12); color:var(--acc); border:1px solid var(--line); border-radius:20px;
+        padding:4px 10px; font-size:12px; cursor:pointer; }
+  .quick button:hover { border-color:var(--acc); }
+  .actions { margin-top:16px; display:flex; align-items:center; gap:12px; }
+  button.primary { background:var(--acc); color:#0b1220; border:none; border-radius:8px; padding:10px 18px;
+        font-size:14px; font-weight:600; cursor:pointer; }
+  button.primary:hover { filter:brightness(1.08); }
+  button.primary:disabled { opacity:.5; cursor:default; }
+  .saved { color:var(--ok); font-size:12px; opacity:0; transition:opacity .2s; }
+  .saved.show { opacity:1; }
+  .preview { background:#0b1220; border:1px solid var(--line); border-radius:8px; padding:10px 12px;
+        font-family:ui-monospace,Consolas,monospace; font-size:13px; margin-top:14px; word-break:break-all; }
+  .current { font-size:14px; font-family:ui-monospace,Consolas,monospace; }
+  .current .row { padding:6px 0; border-bottom:1px solid var(--line); }
+  .current .row:last-child { border-bottom:none; }
+  .current .k { color:var(--mut); font-size:11px; display:block; margin-bottom:2px; }
+  .log { background:#0b1220; border:1px solid var(--line); border-radius:10px; padding:12px;
+         font-family:ui-monospace,Consolas,monospace; font-size:12px; height:220px; overflow-y:auto; white-space:pre-wrap; word-break:break-all; }
+  .muted { color:var(--mut); font-size:12px; }
+</style>
+</head>
+<body>
+  <h1>IotBench — Display Publisher</h1>
+  <div class="sub">Publishes the exact two lines to show on the P10 panel (retained on <code>furnace/display</code>) — the server controls wording, the panel just renders it verbatim, static, no scrolling. &nbsp;·&nbsp; <a href="/">Reply editor</a> &nbsp;·&nbsp; <a href="/scales">Scale panel</a> &nbsp;·&nbsp; <a href="/mqtt">MQTT monitor</a> &nbsp;·&nbsp; <a href="/crane">Bin/Crane data</a></div>
+
+  <div class="statusbar s-err" id="statusbar">starting broker…</div>
+
+  <div class="cols">
+    <div>
+      <div class="card">
+        <h2>Publish display lines</h2>
+
+        <label for="line1">Line 1 (top row)</label>
+        <input type="text" id="line1" value="Furnace-1 selected" placeholder="e.g. Furnace-1 selected" />
+        <div class="charcount" id="cc1"></div>
+        <div class="quick">
+          <button type="button" data-set="line1:Furnace-1 selected">Furnace-1 selected</button>
+          <button type="button" data-set="line1:Furnace-A selected">Furnace-A selected</button>
+          <button type="button" data-set="line1:Furnace not selected">Furnace not selected</button>
+        </div>
+
+        <label for="line2">Line 2 (bottom row) — weight first, always 4 digits</label>
+        <input type="text" id="line2" value="4500 CG-iron" placeholder="e.g. 4500 CG-iron" />
+        <div class="charcount" id="cc2"></div>
+        <div class="quick">
+          <button type="button" data-set="line2:4500 CG-iron">4500 CG-iron</button>
+          <button type="button" data-set="line2:0065 Sg iron">0065 Sg iron</button>
+          <button type="button" data-set="line2:0560 CI-borings">0560 CI-borings</button>
+        </div>
+
+        <div class="preview" id="preview"></div>
+
+        <div class="actions">
+          <button class="primary" id="publishBtn">Publish (retained)</button>
+          <span class="saved" id="savedMsg">published ✓</span>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="card">
+        <h2>Currently retained on furnace/display</h2>
+        <div id="currentWrap"><div class="muted">Nothing published yet.</div></div>
+      </div>
+      <div class="card" style="margin-bottom:8px;">
+        <h2>Publish history</h2>
+        <div class="log" id="log"></div>
+      </div>
+    </div>
+  </div>
+
+<script>
+let lastSeq = 0;
+const logLines = [];
+const PANEL_WIDTH_PX = 64;   // two P10 modules chained side by side
+const PX_PER_CHAR = 6;       // ~5px glyph + 1px gap at this font size
+
+function renderStatus(st, ips){
+  const el=document.getElementById('statusbar');
+  if(st.listening){
+    el.className='statusbar s-on';
+    const list = (ips&&ips.length) ? ips.map(x=>x.ip).join(', ') : 'this PC';
+    el.innerHTML = '● MQTT broker listening on port '+st.port+
+      '<br><span class="muted">In the P10 sketch set:</span> '+
+      '<span class="connect">mqttBroker = "'+(ips&&ips[0]?ips[0].ip:'&lt;PC-IP&gt;')+'"  ·  mqttPort = '+st.port+
+      '  ·  topic = "furnace/display"</span>'+
+      (ips&&ips.length>1 ? '<div class="muted" style="margin-top:6px;">other IPs: '+list+'</div>' : '');
+  } else {
+    el.className='statusbar s-err';
+    el.textContent='✕ broker not listening'+(st.error?(' — '+st.error):'');
+  }
+}
+
+function renderCurrent(current){
+  const wrap=document.getElementById('currentWrap');
+  if(!current || !current.payload){ wrap.innerHTML='<div class="muted">Nothing published yet.</div>'; return; }
+  let d=null; try{ d=JSON.parse(current.payload); }catch(e){}
+  if(!d){ wrap.innerHTML='<div class="muted">Payload (not JSON):</div><div>'+current.payload+'</div>'; return; }
+  wrap.innerHTML =
+    '<div class="current">'+
+      '<div class="row"><span class="k">LINE1</span>'+(d.LINE1||'<i>(empty)</i>')+'</div>'+
+      '<div class="row"><span class="k">LINE2</span>'+(d.LINE2||'<i>(empty)</i>')+'</div>'+
+    '</div>'+
+    '<div class="muted" style="margin-top:8px;">from: '+current.clientId+' · '+current.t+'</div>';
+}
+
+function pushLog(msgs){
+  if(!msgs||!msgs.length) return;
+  const box=document.getElementById('log');
+  const atBottom = box.scrollTop+box.clientHeight >= box.scrollHeight-10;
+  msgs.forEach(m=>{
+    lastSeq=Math.max(lastSeq,m.seq);
+    logLines.push('['+m.t+'] '+m.clientId+' → '+m.topic+'  '+m.payload);
+  });
+  while(logLines.length>200) logLines.shift();
+  box.textContent=logLines.join('\n');
+  if(atBottom) box.scrollTop=box.scrollHeight;
+}
+
+function currentPayload(){
+  return {
+    line1: document.getElementById('line1').value,
+    line2: document.getElementById('line2').value,
+  };
+}
+
+function updateCharCount(id, ccId){
+  const val = document.getElementById(id).value;
+  const px = val.length * PX_PER_CHAR;
+  const el = document.getElementById(ccId);
+  el.textContent = val.length+' chars, ~'+px+'px (panel is '+PANEL_WIDTH_PX+'px)'+(px>PANEL_WIDTH_PX?'  — will clip on the panel':'');
+  el.className = 'charcount'+(px>PANEL_WIDTH_PX?' over':'');
+}
+
+function updatePreview(){
+  const p=currentPayload();
+  document.getElementById('preview').textContent =
+    'furnace/display  {"LINE1":"'+p.line1+'","LINE2":"'+p.line2+'"}';
+  updateCharCount('line1','cc1');
+  updateCharCount('line2','cc2');
+}
+['line1','line2'].forEach(id=>document.getElementById(id).addEventListener('input',updatePreview));
+
+document.querySelectorAll('.quick button').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    const idx = btn.dataset.set.indexOf(':');
+    const field = btn.dataset.set.slice(0, idx);
+    const value = btn.dataset.set.slice(idx + 1);
+    document.getElementById(field).value = value;
+    updatePreview();
+  });
+});
+
+document.getElementById('publishBtn').addEventListener('click', async ()=>{
+  const btn=document.getElementById('publishBtn');
+  btn.disabled=true;
+  try{
+    const r=await fetch('/api/furnace/publish', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(currentPayload())
+    });
+    const j=await r.json();
+    if(j.ok){
+      const s=document.getElementById('savedMsg');
+      s.classList.add('show');
+      setTimeout(()=>s.classList.remove('show'),1500);
+    } else {
+      alert('Publish failed: '+j.error);
+    }
+  } catch(e){ alert('Publish failed: '+e.message); }
+  btn.disabled=false;
+});
+
+async function poll(){
+  try{
+    const r=await fetch('/api/furnace?since='+lastSeq); const j=await r.json();
+    renderStatus(j.status, j.hostIps);
+    renderCurrent(j.current);
+    pushLog(j.messages);
+  }catch(e){}
+}
+updatePreview();
+setInterval(poll,700);
+poll();
+</script>
+</body>
+</html>

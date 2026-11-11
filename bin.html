@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>IotBench — Charge-mix Bins</title>
+<style>
+  :root { --bg:#0f172a; --card:#1e293b; --line:#334155; --txt:#e2e8f0; --mut:#94a3b8;
+          --acc:#38bdf8; --ok:#22c55e; --warn:#f59e0b; --bad:#ef4444; --in:#a78bfa; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--txt); padding:24px; }
+  a { color:var(--acc); text-decoration:none; }
+  h1 { font-size:20px; margin:0; }
+  .top { display:flex; align-items:center; gap:16px; flex-wrap:wrap; margin-bottom:4px; }
+  .sub { color:var(--mut); font-size:13px; margin:4px 0 16px; }
+  .view { display:inline-flex; border:1px solid var(--line); border-radius:9px; overflow:hidden; }
+  .view a, .view span { padding:7px 18px; font-size:13px; font-weight:600; color:var(--txt); }
+  .view .on { background:var(--acc); color:#0b1220; }
+  .rolechip { display:inline-flex; align-items:center; gap:10px; margin-left:auto; font-size:13px; }
+  .rolechip b { padding:4px 10px; border-radius:20px; letter-spacing:.04em; }
+  .rolechip b.software { background:rgba(56,189,248,.15); color:var(--acc); }
+  .rolechip b.board { background:rgba(167,139,250,.15); color:var(--in); }
+  button.clearbtn { background:var(--warn); color:#0b1220; border:none; border-radius:8px; padding:8px 16px;
+        font-size:13px; font-weight:700; cursor:pointer; box-shadow:0 0 0 3px rgba(245,158,11,.25); margin-right:6px; white-space:nowrap; }
+  button.clearbtn:hover { background:#fbbf24; }
+  .statusbar { padding:12px 14px; border-radius:8px; font-size:13px; margin-bottom:16px; border:1px solid var(--line); }
+  .s-on { background:rgba(34,197,94,.12); color:var(--ok); }
+  .s-off { background:rgba(148,163,184,.10); color:var(--mut); }
+  .s-err { background:rgba(239,68,68,.12); color:var(--bad); }
+  .cols { display:grid; grid-template-columns:minmax(320px,420px) 1fr; gap:16px; align-items:start; }
+  @media (max-width:900px) { .cols { grid-template-columns:1fr; } body { padding:16px; } }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; margin-bottom:16px; min-width:0; }
+  .card h2 { font-size:13px; margin:0 0 12px; color:var(--acc); text-transform:uppercase; letter-spacing:.04em;
+             display:flex; align-items:center; gap:8px; }
+  .card h2 .r { margin-left:auto; text-transform:none; letter-spacing:0; font-weight:400; }
+  label { display:block; font-size:12px; color:var(--mut); margin:12px 0 4px; }
+  .radio { display:flex; gap:14px; flex-wrap:wrap; margin-top:2px; }
+  .radio label { display:flex; align-items:center; gap:6px; margin:0; font-size:13px; color:var(--txt); cursor:pointer; }
+  input[type=text], input[type=password], input[type=number], select {
+        width:100%; background:#0b1220; border:1px solid var(--line); border-radius:6px; color:var(--txt);
+        padding:8px 10px; font-size:14px; font-family:ui-monospace,Consolas,monospace; }
+  .row2 { display:grid; grid-template-columns:1fr 90px; gap:8px; }
+  .row2b { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .actions { margin-top:16px; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  button { font-family:inherit; }
+  button.primary { background:var(--acc); color:#0b1220; border:none; border-radius:8px; padding:10px 18px;
+        font-size:14px; font-weight:600; cursor:pointer; }
+  button.ghost { background:transparent; color:var(--txt); border:1px solid var(--line); border-radius:8px; padding:9px 14px;
+        font-size:13px; cursor:pointer; }
+  button.danger { background:rgba(239,68,68,.15); color:#fca5a5; border:1px solid rgba(239,68,68,.5); border-radius:8px;
+        padding:10px 16px; font-size:14px; font-weight:600; cursor:pointer; }
+  button.small { padding:5px 10px; font-size:12px; border-radius:6px; }
+  button:disabled { opacity:.45; cursor:default; }
+  .err { color:var(--bad); font-size:12px; margin-top:8px; min-height:16px; }
+  .muted { color:var(--mut); font-size:12px; }
+  .hide { display:none !important; }
+
+  /* charge mix / stage editors */
+  .tabs { display:flex; gap:6px; flex-wrap:wrap; }
+  .tabs button { background:transparent; color:var(--txt); border:1px solid var(--line); border-radius:8px; padding:7px 12px; font-size:13px; cursor:pointer; }
+  .tabs button.on { background:var(--acc); color:#0b1220; border-color:var(--acc); font-weight:600; }
+  .rows { margin-top:6px; }
+  .erow { display:grid; grid-template-columns:1fr 110px 30px; gap:6px; margin-bottom:6px; align-items:center; }
+  .erow input, .erow select { padding:6px 8px; font-size:13px; }
+  .x { background:transparent; border:1px solid var(--line); color:var(--mut); border-radius:6px; height:30px; cursor:pointer; }
+  .x:hover { color:var(--bad); border-color:var(--bad); }
+  .stage { border:1px solid var(--line); border-radius:8px; padding:10px; margin-top:10px; background:rgba(11,18,32,.5); }
+  .stage .hd { display:grid; grid-template-columns:1fr auto auto auto; gap:6px; align-items:center; }
+  /* testing only: Continuous send */
+  button.repeat { background:rgba(167,139,250,.15); color:var(--in); border:1px solid rgba(167,139,250,.55); border-radius:8px;
+        padding:10px 14px; font-size:13px; font-weight:600; cursor:pointer; white-space:nowrap; }
+  button.repeat.small { padding:5px 10px; font-size:12px; border-radius:6px; }
+  button.repeat.on { background:var(--in); color:#0b1220; animation:blink 1s steps(2) infinite; }
+  .repeatbar { margin-top:10px; font-size:12px; color:var(--in); display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .repeatbar input { width:70px; padding:4px 6px; font-size:12px; }
+
+  /* bins */
+  .bins { display:grid; grid-template-columns:repeat(auto-fill,minmax(178px,1fr)); gap:10px; }
+  .bin { border:1px solid var(--line); border-radius:10px; padding:10px 12px; background:#0b1220; display:flex; flex-direction:column; gap:6px; min-width:0; }
+  .bin.open { border-color:var(--warn); box-shadow:0 0 0 1px rgba(245,158,11,.35) inset; }
+  .bin.over { border-color:var(--bad); box-shadow:0 0 0 1px rgba(239,68,68,.45) inset; }
+  .bin .hd { display:flex; align-items:center; gap:6px; }
+  .bin .no { font-weight:700; font-size:15px; }
+  .bin .el { color:var(--acc); font-weight:700; }
+  .pill { display:inline-block; padding:1px 8px; border-radius:10px; font-size:11px; font-weight:600; letter-spacing:.04em; }
+  .pill.open { background:rgba(245,158,11,.18); color:var(--warn); }
+  .pill.shut { background:rgba(148,163,184,.12); color:var(--mut); }
+  .pill.hand { background:rgba(167,139,250,.18); color:var(--in); }
+  .bin .hd .pill:first-of-type { margin-left:auto; }
+  .bin .mat { font-size:12px; color:var(--mut); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .bin .w { font-family:ui-monospace,Consolas,monospace; font-size:22px; font-weight:700; }
+  .bin .w small { font-size:12px; color:var(--mut); font-weight:400; }
+  .bin .w.live { color:var(--warn); animation:blink 1s steps(2) infinite; }
+  @keyframes blink { 50% { opacity:.55; } }
+  .chip { font-family:ui-monospace,Consolas,monospace; font-size:13px; font-weight:600; text-align:center;
+          border:1.5px solid var(--warn); border-radius:20px; padding:3px 8px; }
+  .chip.over { border-color:var(--bad); background:rgba(239,68,68,.15); color:#fca5a5; }
+  .chip.hand { border-color:var(--in); }
+  .bin .meta { font-size:11px; color:var(--mut); line-height:1.5; font-family:ui-monospace,Consolas,monospace; }
+  .bin .btns { display:flex; gap:5px; flex-wrap:wrap; margin-top:auto; }
+  .bin .btns button { flex:1; }
+  .bin .steps { display:grid; grid-template-columns:repeat(4,1fr); gap:4px; }
+  .bin .steps button { background:#111a2c; color:var(--txt); border:1px solid var(--line); border-radius:6px; padding:5px 0; font-size:12px; cursor:pointer; }
+  .bin .steps button:hover { border-color:var(--acc); }
+  .bin .set { display:grid; grid-template-columns:1fr auto; gap:4px; }
+  .bin .set input { padding:5px 8px; font-size:12px; }
+  button.open { background:rgba(245,158,11,.15); color:var(--warn); border:1px solid rgba(245,158,11,.55); border-radius:6px; padding:6px 8px; font-size:12px; font-weight:600; cursor:pointer; }
+  button.shut { background:rgba(56,189,248,.12); color:var(--acc); border:1px solid rgba(56,189,248,.5); border-radius:6px; padding:6px 8px; font-size:12px; font-weight:600; cursor:pointer; }
+
+  /* json */
+  .jsonpair { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .jsonpair .wide { grid-column:1 / -1; }
+  @media (max-width:1200px) { .jsonpair { grid-template-columns:1fr; } }
+  .dir.data { background:rgba(34,197,94,.15); color:var(--ok); }
+  .ack.q0 { background:rgba(148,163,184,.14); color:var(--mut); }
+  .bin .live-tag { font-size:11px; color:var(--ok); }
+  .bin .live-tag.stale { color:var(--mut); }
+  .jbox { background:#0b1220; border:1px solid var(--line); border-radius:8px; padding:10px 12px; min-height:90px;
+          font-family:ui-monospace,Consolas,monospace; font-size:12px; white-space:pre-wrap; word-break:break-word; margin:0; }
+  .jtitle { font-size:12px; margin-bottom:6px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .jtitle .t { color:var(--mut); font-family:ui-monospace,Consolas,monospace; }
+  .dir { font-size:11px; font-weight:700; letter-spacing:.05em; padding:1px 7px; border-radius:6px; }
+  .dir.out { background:rgba(56,189,248,.16); color:var(--acc); }
+  .dir.in { background:rgba(167,139,250,.18); color:var(--in); }
+  .dir.note { background:rgba(148,163,184,.12); color:var(--mut); }
+  .ack { font-size:11px; padding:1px 7px; border-radius:6px; }
+  .ack.ok { background:rgba(34,197,94,.15); color:var(--ok); }
+  .ack.no { background:rgba(239,68,68,.15); color:var(--bad); }
+  .ack.wait { background:rgba(245,158,11,.15); color:var(--warn); }
+  .log { background:#0b1220; border:1px solid var(--line); border-radius:10px; padding:4px 0; height:420px; overflow-y:auto;
+         font-family:ui-monospace,Consolas,monospace; font-size:12px; }
+  .le { padding:5px 12px; border-bottom:1px solid rgba(51,65,85,.5); display:grid; grid-template-columns:92px 86px 1fr; gap:8px; align-items:start; }
+  .le .t { color:var(--mut); }
+  .le .body { min-width:0; word-break:break-word; }
+  .le .tp { color:var(--mut); margin-right:6px; }
+  .le.note .body { color:var(--mut); }
+  .le.note.warn .body { color:var(--warn); }
+  .le pre { margin:4px 0 0; white-space:pre-wrap; color:var(--txt); }
+  label.ck { display:flex; align-items:center; gap:6px; margin:0; font-size:12px; color:var(--txt); cursor:pointer; }
+
+  /* tables */
+  table { width:100%; border-collapse:collapse; font-size:12.5px; }
+  th { text-align:left; color:var(--mut); font-weight:600; padding:6px 8px; border-bottom:1px solid var(--line); white-space:nowrap; }
+  td { padding:6px 8px; border-bottom:1px solid rgba(51,65,85,.5); font-family:ui-monospace,Consolas,monospace; }
+  td.n { text-align:right; }
+  tr.over td.q { color:#fca5a5; font-weight:700; }
+  .tablewrap { overflow-x:auto; }
+  .btable td input { padding:5px 7px; font-size:12px; }
+
+  /* role picker */
+  .modal { position:fixed; inset:0; background:rgba(2,6,23,.78); display:flex; align-items:center; justify-content:center; padding:16px; z-index:10; }
+  .picker { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:24px; max-width:720px; width:100%; }
+  .picker h2 { margin:0 0 4px; font-size:18px; }
+  .choices { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:18px; }
+  @media (max-width:640px) { .choices { grid-template-columns:1fr; } }
+  .choice { text-align:left; background:#0b1220; color:var(--txt); border:1.5px solid var(--line); border-radius:12px; padding:18px; cursor:pointer; }
+  .choice:hover { border-color:var(--acc); }
+  .choice > b { display:block; font-size:16px; margin-bottom:6px; }
+  .choice .muted { line-height:1.5; }
+  .choice code { color:var(--acc); }
+</style>
+</head>
+<body>
+  <div class="top">
+    <h1>IotBench — Charge-mix Bins</h1>
+    <div class="view"><a href="/crane">Crane</a><span class="on">Bin</span></div>
+    <div class="rolechip hide" id="roleChip"><button class="clearbtn" id="clearLog" title="Empty the message log and the SENT / RECEIVED boxes">✕ Clear messages</button>Acting as <b id="roleName"></b><button class="ghost small" id="btnRole">Change role</button></div>
+  </div>
+  <div class="sub">The bin board conversation over MQTT — kilograms, QoS 1. Every message sent and received is shown below.
+    &nbsp;·&nbsp; <a href="/mqtt">MQTT monitor</a> &nbsp;·&nbsp; <a href="/">Reply editor</a></div>
+
+  <div class="statusbar s-off" id="statusbar">loading…</div>
+
+  <div class="cols">
+    <div>
+      <div class="card">
+        <h2>MQTT broker</h2>
+        <div class="radio">
+          <label><input type="radio" name="target" value="embedded" /> This IotBench's broker</label>
+          <label><input type="radio" name="target" value="external" checked /> External broker</label>
+        </div>
+        <div id="extBox" class="hide">
+          <label for="host">Broker host / IP</label>
+          <div class="row2">
+            <input type="text" id="host" value="broker.mqtt.cool" />
+            <input type="number" id="port" value="1883" min="1" max="65535" />
+          </div>
+          <div class="row2b">
+            <div><label for="user">Username</label><input type="text" id="user" autocomplete="off" /></div>
+            <div><label for="pass">Password</label><input type="password" id="pass" autocomplete="new-password" /></div>
+          </div>
+          <div class="muted" style="margin-top:6px;">Plain TCP only (no TLS). The plant broker is refused. The password is not stored.</div>
+        </div>
+        <label for="clientId">Client ID <span class="muted">(blank = generated)</span></label>
+        <input type="text" id="clientId" autocomplete="off" />
+        <label for="reqTopic">Request topic</label>
+        <input type="text" id="reqTopic" value="melting/software/set-weights" />
+        <label for="repTopic">Reply topic</label>
+        <input type="text" id="repTopic" value="bin/chargemix/reply" />
+        <label for="dataTopic">Bin weight topic <span class="muted">— every bin's scale, once a second (blank = off)</span></label>
+        <input type="text" id="dataTopic" value="melting/board1/weights" />
+        <div class="muted" id="topicHint" style="margin-top:6px;"></div>
+        <div class="actions">
+          <button class="primary" id="btnConnect">Connect</button>
+          <button class="ghost" id="btnDisconnect" disabled>Disconnect</button>
+        </div>
+        <div class="err" id="connErr"></div>
+      </div>
+
+      <!-- ===== SOFTWARE: charge mix, spectrum, finished ===== -->
+      <div id="swPanel" class="hide">
+        <div class="card">
+          <h2>Charge mix <span class="r"><button class="ghost small" id="cmReset" title="Put the two sample charge mixes back">Reset samples</button></span></h2>
+          <div class="tabs" id="cmTabs"></div>
+          <div class="row2b">
+            <div><label for="cmFurnace">Furnace no.</label><input type="number" id="cmFurnace" min="1" /></div>
+            <div><label for="cmHeat">Heat no.</label><input type="text" id="cmHeat" /></div>
+          </div>
+          <label>Additions — bin and need (kg)</label>
+          <div class="rows" id="cmRows"></div>
+          <button class="ghost small" id="cmAdd">+ Add bin</button>
+          <div class="actions">
+            <button class="primary" id="cmSave">Save charge mix</button>
+            <button class="repeat" id="cmRepeat" title="Testing only: save once, then send the same charge again and again until Finished">⟳ Continuous send</button>
+          </div>
+          <div class="repeatbar">every <input type="number" id="repeatEvery" min="0.2" step="0.5" value="1" /> s
+            <span class="muted">— testing only: sends the same <code>charge</code> again and again; <b>Finished — close all bins</b> stops it</span></div>
+          <div class="repeatbar hide" id="repeatState"></div>
+          <div class="err" id="cmErr"></div>
+        </div>
+
+        <div class="card">
+          <h2>Spectrum results <span class="r"><button class="ghost small" id="stAdd">+ Add stage</button></span></h2>
+          <div class="muted">Each stage replaces the one before: bins it does not want get a <code>close</code> first, then its <code>charge</code> goes with <code>stage</code>.</div>
+          <div id="stages"></div>
+          <div class="err" id="stErr"></div>
+        </div>
+
+        <div class="card">
+          <h2>Simulation</h2>
+          <div class="muted">Testing only: <code>charge</code> for bins 1–6 (the furnace and heat of the charge mix above),
+            <code>done</code> after the charge time, the <code>charge</code> again after the wait — round and round until Stop.</div>
+          <div class="row2b" style="grid-template-columns:repeat(3,1fr);">
+            <div><label for="simNeed">Need, each bin (kg)</label><input type="number" id="simNeed" min="0" step="0.5" value="2" /></div>
+            <div><label for="simCharge">Done after (s)</label><input type="number" id="simCharge" min="1" step="1" value="25" /></div>
+            <div><label for="simWait">Charge again after (s)</label><input type="number" id="simWait" min="1" step="1" value="5" /></div>
+          </div>
+          <div class="actions">
+            <button class="repeat" id="simBtn">▶ Start simulation</button>
+          </div>
+          <div class="repeatbar hide" id="simState"></div>
+          <div class="err" id="simErr"></div>
+        </div>
+
+        <div class="card">
+          <h2>Finish</h2>
+          <div class="actions" style="margin-top:0;">
+            <button class="danger" id="swDone">Finished — close all bins</button>
+            <span class="muted">sends <code>done</code></span>
+          </div>
+          <div class="err" id="doneErr"></div>
+        </div>
+      </div>
+
+      <!-- ===== BOARD: how the machine behaves ===== -->
+      <div id="bdPanel" class="hide">
+        <div class="card">
+          <h2>The machine</h2>
+          <label class="ck"><input type="checkbox" id="bdAuto" /> Auto take — an open bin gives its need by itself</label>
+          <div class="row2b">
+            <div><label for="bdRate">Rate (kg / s)</label><input type="number" id="bdRate" step="0.1" min="0" /></div>
+            <div><label for="bdOver">Overshoot (kg) <span class="muted">— take past need</span></label><input type="number" id="bdOver" step="0.1" /></div>
+          </div>
+          <label for="bdFurnace">Furnace for bins opened by hand <span class="muted">(blank = send no furnace)</span></label>
+          <input type="text" id="bdFurnace" />
+          <label>Readings</label>
+          <label class="ck" style="margin-bottom:6px;"><input type="checkbox" id="bdSendData" /> Send every bin's weight on the bin weight topic every second (grams, as the ESP32)</label>
+          <label class="ck"><input type="checkbox" id="bdSending" /> Send <code>took</code> every second while a bin is open</label>
+          <label class="ck" style="margin-top:6px;"><input type="checkbox" id="bdCombined" /> Several open bins → one message with a <code>bins</code> list</label>
+          <div class="radio" style="margin-top:8px;">
+            <label><input type="radio" name="unit" value="kg" /> qty in kg</label>
+            <label><input type="radio" name="unit" value="g" /> qty in grams (<code>"unit":"g"</code>)</label>
+          </div>
+          <div class="actions">
+            <button class="danger" id="bdDone">Done button — close all</button>
+            <span class="muted">sends <code>done</code></span>
+          </div>
+          <div class="err" id="bdErr"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Bin table <span class="r"><button class="ghost small" id="btEdit">Edit</button></span></h2>
+        <div class="muted" id="btHint">Bin number, element and material. In Board mode the weight is what each scale reads and is sent on the bin weight topic; in Software mode it comes from that topic.</div>
+        <div id="btBox" class="hide">
+          <div class="tablewrap"><table class="btable"><thead><tr><th>Bin</th><th>El</th><th>Material</th><th>kg</th><th></th></tr></thead><tbody id="btBody"></tbody></table></div>
+          <div class="actions"><button class="ghost small" id="btAddRow">+ Bin</button><button class="primary" id="btSave">Save bins</button><button class="ghost small" id="btCancel">Cancel</button></div>
+          <div class="err" id="btErr"></div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="card">
+        <h2>Bins <span class="r muted" id="binsHint"></span></h2>
+        <div class="bins" id="bins"></div>
+        <div class="err" id="binErr"></div>
+      </div>
+
+      <div class="card">
+        <h2>JSON</h2>
+        <div class="jsonpair">
+          <div><div class="jtitle"><span class="dir out">SENT →</span><span class="t" id="lsMeta">—</span></div><pre class="jbox" id="lastSent">nothing sent yet</pre></div>
+          <div><div class="jtitle"><span class="dir in">← RECEIVED</span><span class="t" id="lrMeta">—</span></div><pre class="jbox" id="lastRecv">nothing received yet</pre></div>
+          <div class="wide"><div class="jtitle"><span class="dir data" id="ldDir">BIN WEIGHTS</span><span class="t" id="ldMeta">—</span></div><pre class="jbox" id="lastData">no bin weights yet</pre></div>
+        </div>
+      </div>
+
+      <div class="card" id="savedCard">
+        <h2>Qty Taken saved on the heat <span class="r"><button class="ghost small" id="clearSaved">Clear</button></span></h2>
+        <div class="muted" style="margin-bottom:8px;">What the software writes when a bin closes: a charge-mix or stage bin sets its figure; a bin opened by hand is added onto the furnace's latest stage (or the charge mix).</div>
+        <div class="tablewrap"><table><thead><tr><th>Heat</th><th>Furnace</th><th>Where</th><th>Bin</th><th>El</th><th class="n">Need</th><th class="n">Qty taken</th></tr></thead><tbody id="saved"></tbody></table></div>
+        <h2 style="margin-top:16px;">Each close</h2>
+        <div class="tablewrap"><table><thead><tr><th>Time</th><th>Bin</th><th>El</th><th>Why</th><th>Heat</th><th class="n">Need</th><th class="n">Taken</th></tr></thead><tbody id="takes"></tbody></table></div>
+      </div>
+
+      <div class="card">
+        <h2>Messages
+          <span class="r" style="display:flex;gap:12px;align-items:center;">
+            <label class="ck"><input type="checkbox" id="hideData" /> hide weights</label>
+            <label class="ck"><input type="checkbox" id="hideTook" /> hide <code>took</code></label>
+            <label class="ck"><input type="checkbox" id="hideNotes" /> hide notes</label>
+            <label class="ck"><input type="checkbox" id="pretty" checked /> pretty</label>
+          </span>
+        </h2>
+        <div class="log" id="log"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal hide" id="picker">
+    <div class="picker">
+      <h2>How should this simulator act?</h2>
+      <div class="muted">It plays one end of the bin conversation. Pick the end you do <b>not</b> have, and connect it to the same broker as the end you are testing.</div>
+      <div class="choices">
+        <button class="choice" data-role="software">
+          <b>Act as Software</b>
+          <div class="muted">Plays the melting server. Save a charge mix or a spectrum stage to send <code>charge</code>; open, close and finish bins; reads the board's <code>took</code> weights and works out Qty Taken.<br><br>Use it to test the <b>real board</b>.</div>
+        </button>
+        <button class="choice" data-role="board">
+          <b>Act as Board</b>
+          <div class="muted">Plays the bin machine. Opens bins on <code>charge</code>, sends each open bin's weight every second as <code>took</code>, and has the machine's open / close / done buttons.<br><br>Use it to test the <b>melting server</b>.</div>
+        </button>
+      </div>
+    </div>
+  </div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
+const kg = (n) => (n === null || n === undefined ? '—' : Number(n).toFixed(3));
+const fmt = (n) => (n === null || n === undefined ? '—' : String(Math.round(Number(n) * 1000) / 1000));
+let S = null, lastRev = -1, binKey = '';
+
+/* ---------------- talking to IotBench ---------------- */
+async function post(path, body) {
+  try {
+    const r = await fetch(path, { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify(body || {}) });
+    const txt = await r.text();
+    try { return JSON.parse(txt); }
+    catch (e) { return { ok:false, error:'server answered HTTP ' + r.status + ' (not JSON) - restart IotBench so it loads the latest server.js' }; }
+  } catch (e) { return { ok:false, error:'cannot reach IotBench: ' + e.message }; }
+}
+async function act(body, errEl) {
+  if (errEl) $(errEl).textContent = '';
+  const r = await post('/api/bin/action', body);
+  if (!r.ok && errEl) $(errEl).textContent = r.error || 'failed';
+  poll();
+  return r;
+}
+
+/* ---------------- connection form (password is never stored) ---------------- */
+function saveConn() {
+  try { localStorage.setItem('binboard.conn', JSON.stringify({ target:target(), host:$('host').value, port:$('port').value,
+    user:$('user').value, clientId:$('clientId').value, req:$('reqTopic').value, rep:$('repTopic').value, data:$('dataTopic').value })); } catch (e) {}
+}
+function loadConn() {
+  try {
+    const v = JSON.parse(localStorage.getItem('binboard.conn') || '{}');
+    if (v.target) document.querySelector('input[name=target][value=' + v.target + ']').checked = true;
+    if (v.host) $('host').value = v.host; if (v.port) $('port').value = v.port; if (v.user) $('user').value = v.user;
+    if (v.clientId) $('clientId').value = v.clientId; if (v.req) $('reqTopic').value = v.req; if (v.rep) $('repTopic').value = v.rep;
+    if (typeof v.data === 'string') $('dataTopic').value = v.data;
+  } catch (e) {}
+  $('extBox').classList.toggle('hide', target() !== 'external');
+}
+function target() { return document.querySelector('input[name=target]:checked').value; }
+document.querySelectorAll('input[name=target]').forEach((r) => r.addEventListener('change', () => $('extBox').classList.toggle('hide', target() !== 'external')));
+
+$('btnConnect').addEventListener('click', async () => {
+  $('connErr').textContent = ''; saveConn();
+  const r = await post('/api/bin/connect', { target:target(), host:$('host').value, port:$('port').value,
+    username:$('user').value, password:$('pass').value, clientId:$('clientId').value,
+    requestTopic:$('reqTopic').value, replyTopic:$('repTopic').value, dataTopic:$('dataTopic').value });
+  if (!r.ok) $('connErr').textContent = r.error || 'could not connect';
+  poll();
+});
+$('btnDisconnect').addEventListener('click', async () => { await post('/api/bin/disconnect'); poll(); });
+
+/* ---------------- role ---------------- */
+document.querySelectorAll('.choice').forEach((b) => b.addEventListener('click', async () => {
+  const r = await post('/api/bin/role', { role:b.dataset.role });
+  if (!r.ok) alert(r.error); lastRev = -1; binKey = ''; poll();
+}));
+$('btnRole').addEventListener('click', async () => {
+  if (S && S.link.on && !confirm('Changing role disconnects and clears the bins and the message log. Go on?')) return;
+  await post('/api/bin/role', { role:null }); lastRev = -1; binKey = ''; poll();
+});
+
+/* ---------------- software: charge mixes (kept in this browser) ---------------- */
+const SAMPLES = [
+  { name:'Charge mix 1', furnace:1, heat:'16652408',
+    bins:[{ bin:3, need:14 }, { bin:6, need:3.5 }, { bin:8, need:29.75 }],
+    stages:[{ stage:'F3-6-BATH 1', bins:[{ bin:6, need:1.59 }] },
+            { stage:'F3-6-BATH 2', bins:[{ bin:3, need:0.4 }, { bin:7, need:0.25 }] }] },
+  { name:'Charge mix 2', furnace:2, heat:'16652409',
+    bins:[{ bin:1, need:12.5 }, { bin:3, need:20 }, { bin:5, need:4.2 }],
+    stages:[{ stage:'F2-BATH 1', bins:[{ bin:5, need:1.1 }] }] },
+];
+let CM = [], cmSel = 0;
+function loadCM() {
+  try { CM = JSON.parse(localStorage.getItem('binboard.cm') || 'null'); } catch (e) { CM = null; }
+  if (!Array.isArray(CM) || !CM.length) CM = JSON.parse(JSON.stringify(SAMPLES));
+  try { cmSel = Math.min(CM.length - 1, Number(localStorage.getItem('binboard.cmSel') || 0)); } catch (e) { cmSel = 0; }
+}
+function saveCM() { try { localStorage.setItem('binboard.cm', JSON.stringify(CM)); localStorage.setItem('binboard.cmSel', cmSel); } catch (e) {} }
+
+function binOptions(sel) {
+  const bins = S ? S.bins : [];
+  return bins.map((b) => '<option value="' + b.bin + '"' + (Number(sel) === b.bin ? ' selected' : '') + '>B' + b.bin + ' · ' + esc(b.el) + ' — ' + esc(b.material) + '</option>').join('');
+}
+function rowsHtml(rows, scope) {
+  return rows.map((r, i) =>
+    '<div class="erow"><select data-scope="' + scope + '" data-i="' + i + '" data-f="bin">' + binOptions(r.bin) + '</select>' +
+    '<input type="number" step="0.001" min="0" placeholder="need kg" data-scope="' + scope + '" data-i="' + i + '" data-f="need" value="' + esc(r.need) + '" />' +
+    '<button class="x" title="Remove" data-scope="' + scope + '" data-i="' + i + '" data-rm="1">×</button></div>').join('');
+}
+function renderCM() {
+  const cm = CM[cmSel];
+  $('cmTabs').innerHTML = CM.map((c, i) => '<button data-i="' + i + '" class="' + (i === cmSel ? 'on' : '') + '">' + esc(c.name) + '</button>').join('');
+  $('cmFurnace').value = cm.furnace; $('cmHeat').value = cm.heat;
+  $('cmRows').innerHTML = rowsHtml(cm.bins, 'cm');
+  $('stages').innerHTML = cm.stages.map((s, k) =>
+    '<div class="stage"><div class="hd"><input type="text" data-stage="' + k + '" data-f="name" value="' + esc(s.stage) + '" placeholder="stage, e.g. F3-6-BATH 1" />' +
+    '<button class="primary small" data-send="' + k + '">Send stage</button>' +
+    '<button class="repeat small" data-repeat="' + k + '" title="Testing only: send this stage again and again until Finished">⟳ Continuous</button>' +
+    '<button class="x" data-rmstage="' + k + '" title="Remove stage">×</button></div>' +
+    '<div class="rows">' + rowsHtml(s.bins, 'st' + k) + '</div><button class="ghost small" data-addrow="st' + k + '">+ Add bin</button></div>').join('') ||
+    '<div class="muted" style="margin-top:10px;">No stages — add one.</div>';
+}
+const rowsOf = (scope) => (scope === 'cm' ? CM[cmSel].bins : CM[cmSel].stages[Number(scope.slice(2))].bins);
+function nextFreeBin(rows) { const used = rows.map((r) => Number(r.bin)); const b = (S ? S.bins : []).find((x) => !used.includes(x.bin)); return b ? b.bin : 1; }
+
+$('cmTabs').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; cmSel = Number(b.dataset.i); saveCM(); renderCM(); });
+$('cmFurnace').addEventListener('change', () => { CM[cmSel].furnace = Number($('cmFurnace').value); saveCM(); });
+$('cmHeat').addEventListener('change', () => { CM[cmSel].heat = $('cmHeat').value.trim(); saveCM(); });
+$('cmAdd').addEventListener('click', () => { const r = CM[cmSel].bins; r.push({ bin:nextFreeBin(r), need:1 }); saveCM(); renderCM(); });
+$('stAdd').addEventListener('click', () => { const s = CM[cmSel].stages; s.push({ stage:'BATH ' + (s.length + 1), bins:[{ bin:nextFreeBin([]), need:1 }] }); saveCM(); renderCM(); });
+$('cmReset').addEventListener('click', () => { if (!confirm('Put the two sample charge mixes back? Your edits are lost.')) return; CM = JSON.parse(JSON.stringify(SAMPLES)); cmSel = 0; saveCM(); renderCM(); });
+['cmRows', 'stages'].forEach((id) => {
+  $(id).addEventListener('change', (e) => {
+    const t = e.target;
+    if (t.dataset.stage !== undefined) { CM[cmSel].stages[Number(t.dataset.stage)].stage = t.value.trim(); saveCM(); return; }
+    if (!t.dataset.scope) return;
+    rowsOf(t.dataset.scope)[Number(t.dataset.i)][t.dataset.f] = Number(t.value); saveCM();
+  });
+  $(id).addEventListener('click', async (e) => {
+    const t = e.target.closest('button'); if (!t) return;
+    if (t.dataset.rm) { rowsOf(t.dataset.scope).splice(Number(t.dataset.i), 1); saveCM(); renderCM(); }
+    else if (t.dataset.addrow) { const r = rowsOf(t.dataset.addrow); r.push({ bin:nextFreeBin(r), need:1 }); saveCM(); renderCM(); }
+    else if (t.dataset.rmstage !== undefined) { CM[cmSel].stages.splice(Number(t.dataset.rmstage), 1); saveCM(); renderCM(); }
+    else if (t.dataset.repeat !== undefined) {
+      const rp = S && S.software.repeat;
+      const cm = CM[cmSel], s = cm.stages[Number(t.dataset.repeat)];
+      if (rp && rp.stage === s.stage) { await act({ action:'stopRepeat' }, 'stErr'); return; }
+      t.disabled = true;
+      await act({ action:'repeat', every:$('repeatEvery').value, furnace:cm.furnace, heat:cm.heat, stage:s.stage, bins:s.bins }, 'stErr');
+      t.disabled = false;
+    }
+    else if (t.dataset.send !== undefined) {
+      const cm = CM[cmSel], s = cm.stages[Number(t.dataset.send)];
+      t.disabled = true;
+      await act({ action:'charge', furnace:cm.furnace, heat:cm.heat, stage:s.stage, bins:s.bins }, 'stErr');
+      t.disabled = false;
+    }
+  });
+});
+$('cmSave').addEventListener('click', async () => {
+  const cm = CM[cmSel];
+  cm.furnace = Number($('cmFurnace').value); cm.heat = $('cmHeat').value.trim(); saveCM();
+  $('cmSave').disabled = true;
+  await act({ action:'charge', furnace:cm.furnace, heat:cm.heat, bins:cm.bins }, 'cmErr');
+  $('cmSave').disabled = false;
+});
+$('swDone').addEventListener('click', () => act({ action:'done' }, 'doneErr'));
+$('cmRepeat').addEventListener('click', async () => {
+  const rp = S && S.software.repeat;
+  if (rp && !rp.stage) { await act({ action:'stopRepeat' }, 'cmErr'); return; }
+  const cm = CM[cmSel];
+  cm.furnace = Number($('cmFurnace').value); cm.heat = $('cmHeat').value.trim(); saveCM();
+  $('cmRepeat').disabled = true;
+  await act({ action:'repeat', every:$('repeatEvery').value, furnace:cm.furnace, heat:cm.heat, bins:cm.bins }, 'cmErr');
+  $('cmRepeat').disabled = false;
+});
+/* testing only: show which charge is being re-sent */
+function renderRepeat() {
+  const rp = S.software.repeat;
+  const cmOn = !!(rp && !rp.stage);
+  $('cmRepeat').classList.toggle('on', cmOn);
+  $('cmRepeat').textContent = cmOn ? '■ Stop continuous' : '⟳ Continuous send';
+  document.querySelectorAll('#stages [data-repeat]').forEach((b) => {
+    const s = CM[cmSel].stages[Number(b.dataset.repeat)];
+    const on = !!(rp && s && rp.stage === s.stage);
+    b.classList.toggle('on', on);
+    b.textContent = on ? '■ Stop' : '⟳ Continuous';
+    b.disabled = !S.link.connected;
+  });
+  $('repeatState').classList.toggle('hide', !rp);
+  if (rp) $('repeatState').textContent = '⟳ sending ' + rp.kind + ' every ' + rp.every + ' s — ' + rp.count + ' sent so far';
+}
+/* testing only: the charge -> done -> charge loop */
+$('simBtn').addEventListener('click', async () => {
+  if (S && S.software.sim) { await act({ action:'stopSim' }, 'simErr'); return; }
+  const cm = CM[cmSel];
+  cm.furnace = Number($('cmFurnace').value); cm.heat = $('cmHeat').value.trim(); saveCM();
+  $('simBtn').disabled = true;
+  await act({ action:'sim', furnace:cm.furnace, heat:cm.heat, need:$('simNeed').value,
+              chargeSec:$('simCharge').value, waitSec:$('simWait').value }, 'simErr');
+  $('simBtn').disabled = false;
+});
+function renderSim() {
+  const sm = S.software.sim;
+  $('simBtn').classList.toggle('on', !!sm);
+  $('simBtn').textContent = sm ? '■ Stop simulation' : '▶ Start simulation';
+  $('simBtn').disabled = !sm && !S.link.connected;
+  ['simNeed', 'simCharge', 'simWait'].forEach((id) => { $(id).disabled = !!sm; });
+  $('simState').classList.toggle('hide', !sm);
+  if (sm) {
+    const left = Math.ceil(sm.nextInMs / 1000);
+    $('simState').textContent = '⟳ cycle ' + sm.cycles + ' · heat ' + sm.heat + ' · ' +
+      (sm.phase === 'charge' ? 'bins 1–6 open — done in ' + left + ' s' : 'all done — charge again in ' + left + ' s');
+  }
+}
+$('clearSaved').addEventListener('click', () => act({ action:'clearSaved' }));
+
+/* ---------------- board settings ---------------- */
+const bdSet = (patch) => act({ action:'settings', ...patch }, 'bdErr');
+$('bdAuto').addEventListener('change', () => bdSet({ autoTake:$('bdAuto').checked }));
+$('bdRate').addEventListener('change', () => bdSet({ rate:$('bdRate').value }));
+$('bdOver').addEventListener('change', () => bdSet({ overshoot:$('bdOver').value }));
+$('bdFurnace').addEventListener('change', () => bdSet({ furnace:$('bdFurnace').value }));
+$('bdSending').addEventListener('change', () => bdSet({ sending:$('bdSending').checked }));
+$('bdSendData').addEventListener('change', () => bdSet({ sendData:$('bdSendData').checked }));
+$('bdCombined').addEventListener('change', () => bdSet({ combined:$('bdCombined').checked }));
+document.querySelectorAll('input[name=unit]').forEach((r) => r.addEventListener('change', () => bdSet({ unit:r.value })));
+$('bdDone').addEventListener('click', () => act({ action:'done' }, 'bdErr'));
+const focused = (el) => document.activeElement === el;
+function fillBoard(d) {
+  $('bdAuto').checked = d.autoTake; $('bdSending').checked = d.sending; $('bdSendData').checked = d.sendData; $('bdCombined').checked = d.combined;
+  if (!focused($('bdRate'))) $('bdRate').value = d.rate;
+  if (!focused($('bdOver'))) $('bdOver').value = d.overshoot;
+  if (!focused($('bdFurnace'))) $('bdFurnace').value = d.furnace;
+  document.querySelector('input[name=unit][value=' + d.unit + ']').checked = true;
+}
+
+/* ---------------- bin table editor ---------------- */
+let btRows = null;
+function renderBt() {
+  $('btBody').innerHTML = btRows.map((b, i) =>
+    '<tr><td><input type="number" min="1" data-i="' + i + '" data-f="bin" value="' + esc(b.bin) + '" style="width:64px" /></td>' +
+    '<td><input type="text" data-i="' + i + '" data-f="el" value="' + esc(b.el) + '" style="width:60px" /></td>' +
+    '<td><input type="text" data-i="' + i + '" data-f="material" value="' + esc(b.material) + '" /></td>' +
+    '<td><input type="number" step="0.001" min="0" data-i="' + i + '" data-f="weight" value="' + esc(b.weight) + '" style="width:90px"' + (b.open ? ' disabled title="open - weight comes from the readings"' : '') + ' /></td>' +
+    '<td><button class="x" data-rm="' + i + '">×</button></td></tr>').join('');
+}
+$('btEdit').addEventListener('click', () => {
+  btRows = S.bins.map((b) => ({ bin:b.bin, el:b.el, material:b.material, weight:b.weight, open:b.open }));
+  $('btBox').classList.remove('hide'); $('btEdit').classList.add('hide'); renderBt();
+});
+$('btCancel').addEventListener('click', () => { btRows = null; $('btBox').classList.add('hide'); $('btEdit').classList.remove('hide'); $('btErr').textContent = ''; });
+$('btAddRow').addEventListener('click', () => { const n = Math.max(0, ...btRows.map((b) => Number(b.bin) || 0)) + 1; btRows.push({ bin:n, el:'', material:'', weight:0 }); renderBt(); });
+$('btBody').addEventListener('change', (e) => { const t = e.target; if (!t.dataset.f) return; btRows[Number(t.dataset.i)][t.dataset.f] = t.type === 'number' ? Number(t.value) : t.value; });
+$('btBody').addEventListener('click', (e) => { const t = e.target.closest('button[data-rm]'); if (!t) return; btRows.splice(Number(t.dataset.rm), 1); renderBt(); });
+$('btSave').addEventListener('click', async () => {
+  const r = await act({ action:'bins', bins:btRows }, 'btErr');
+  if (r.ok) { btRows = null; $('btBox').classList.add('hide'); $('btEdit').classList.remove('hide'); binKey = ''; if (S.role === 'software') setTimeout(renderCM, 600); }
+});
+
+/* ---------------- bins ---------------- */
+function figureOf(b) {
+  if (!b.open) return '';
+  const taken = b.taken ?? 0;
+  if (b.need === null) return fmt(taken) + ' kg taken';
+  return fmt(taken) + ' / ' + fmt(b.need) + ' kg';
+}
+function buildBins() {
+  const sw = S.role === 'software';
+  $('bins').innerHTML = S.bins.map((b) =>
+    '<div class="bin" id="bin' + b.bin + '">' +
+      '<div class="hd"><span class="no">B' + b.bin + '</span><span class="el">' + esc(b.el) + '</span><span class="pill" id="bp' + b.bin + '"></span><span class="pill hand hide" id="bh' + b.bin + '">BY HAND</span></div>' +
+      '<div class="mat" title="' + esc(b.material) + '">' + esc(b.material) + '</div>' +
+      '<div class="w" id="bw' + b.bin + '"></div>' +
+      '<div class="live-tag hide" id="bl' + b.bin + '"></div>' +
+      '<div class="chip" id="bc' + b.bin + '"></div>' +
+      '<div class="meta" id="bm' + b.bin + '"></div>' +
+      (sw ? '' :
+        '<div class="steps"><button data-bin="' + b.bin + '" data-d="-1">−1</button><button data-bin="' + b.bin + '" data-d="-0.1">−0.1</button>' +
+        '<button data-bin="' + b.bin + '" data-d="0.1">+0.1</button><button data-bin="' + b.bin + '" data-d="1">+1</button></div>' +
+        '<div class="set"><input type="number" step="0.001" min="0" placeholder="set kg" id="bs' + b.bin + '" /><button class="ghost small" data-set="' + b.bin + '">Set</button></div>') +
+      '<div class="btns"><button id="bb' + b.bin + '" data-toggle="' + b.bin + '"></button></div>' +
+    '</div>').join('');
+}
+function updateBins() {
+  const sw = S.role === 'software';
+  const key = S.role + '|' + S.bins.map((b) => b.bin + b.el + b.material).join(',');
+  if (key !== binKey) { binKey = key; buildBins(); }
+  for (const b of S.bins) {
+    const over = b.open && b.need !== null && (b.taken ?? 0) > b.need;
+    $('bin' + b.bin).className = 'bin' + (b.open ? ' open' : '') + (over ? ' over' : '');
+    const p = $('bp' + b.bin); p.className = 'pill ' + (b.open ? 'open' : 'shut'); p.textContent = b.open ? 'OPEN' : 'CLOSED';
+    $('bh' + b.bin).classList.toggle('hide', !(b.open && b.manual));
+    const w = b.open ? (b.lastWeight ?? b.startWeight ?? b.weight) : b.weight;
+    const wl = $('bw' + b.bin);
+    wl.innerHTML = kg(w) + ' <small>kg ' + (b.open ? (sw ? (b.lastWeight === null ? 'waiting for a reading' : 'reading') : 'on the scale') : (sw ? 'stock' : 'on the scale')) + '</small>';
+    wl.className = 'w' + (b.open && (b.taken ?? 0) > 0 ? ' live' : '');
+    const lt = $('bl' + b.bin);
+    if (sw && b.weightAt) {
+      const age = Math.max(0, Math.round((Date.now() - Date.parse(b.weightAt)) / 1000));
+      lt.textContent = '● from ' + (S.conn.dataTopic || 'the board') + (age > 3 ? ' · ' + age + ' s ago' : '');
+      lt.className = 'live-tag' + (age > 5 ? ' stale' : '');
+    } else lt.className = 'live-tag hide';
+    const c = $('bc' + b.bin); const fig = figureOf(b);
+    c.textContent = fig; c.className = 'chip' + (over ? ' over' : '') + (b.open && b.need === null ? ' hand' : '') + (fig ? '' : ' hide');
+    const meta = [];
+    if (b.open) {
+      if (b.startWeight !== null) meta.push('opened at ' + kg(b.startWeight) + ' kg');
+      if (b.furnace !== null) meta.push('furnace ' + b.furnace + (b.heat ? ' · heat ' + esc(b.heat) : ''));
+      else if (b.manual) meta.push(sw ? 'heat: from the furnace on its readings' : 'reports furnace ' + (S.board.furnace || '— (none)'));
+      if (b.stage) meta.push(esc(b.stage));
+      else if (b.open && !b.manual) meta.push('charge mix');
+    }
+    $('bm' + b.bin).innerHTML = meta.join('<br>');
+    const t = $('bb' + b.bin);
+    t.className = b.open ? 'shut' : 'open';
+    t.textContent = b.open ? (sw ? 'Close' : 'Close (machine button)') : (sw ? 'Open by hand' : 'Open (machine button)');
+    t.disabled = !S.link.connected;
+  }
+  $('binsHint').textContent = sw ? 'weights come from the board on ' + (S.conn.dataTopic || '(off)') + '; took readings show while a bin is open'
+    : 'weights are what each scale reads, sent on ' + (S.conn.dataTopic || '(off)') + '; step them to take or put back';
+}
+$('bins').addEventListener('click', async (e) => {
+  const t = e.target.closest('button'); if (!t) return;
+  if (t.dataset.toggle) {
+    const b = S.bins.find((x) => x.bin === Number(t.dataset.toggle));
+    act({ action:b.open ? 'close' : 'open', bin:b.bin }, 'binErr');
+  } else if (t.dataset.d) {
+    act({ action:'weight', bin:Number(t.dataset.bin), delta:Number(t.dataset.d) }, 'binErr');
+  } else if (t.dataset.set) {
+    const el = $('bs' + t.dataset.set); if (el.value === '') return;
+    await act({ action:'weight', bin:Number(t.dataset.set), set:Number(el.value) }, 'binErr'); el.value = '';
+  }
+});
+
+/* ---------------- json + log ---------------- */
+function pretty(payload) { try { return JSON.stringify(JSON.parse(payload), null, 2); } catch (e) { return payload; } }
+const isData = (e) => !!(S && S.conn.dataTopic && e.topic === S.conn.dataTopic);
+function ackHtml(e) {
+  if (e.dir !== 'out') return '';
+  if (e.qos0) return e.ack ? '<span class="ack q0">QoS 0</span>' : '<span class="ack no">' + esc(e.text || 'not sent') + '</span>';
+  if (e.ack === null) return '<span class="ack wait">waiting for PUBACK</span>';
+  return e.ack ? '<span class="ack ok">PUBACK ✓</span>' : '<span class="ack no">' + esc(e.text || 'not acknowledged') + '</span>';
+}
+function renderLog() {
+  const hideTook = $('hideTook').checked, hideNotes = $('hideNotes').checked, pr = $('pretty').checked, hideData = $('hideData').checked;
+  const list = S.log.slice().reverse().filter((e) => {
+    if (e.dir === 'note') return !hideNotes;
+    if (isData(e)) return !hideData;
+    return !(hideTook && /"cmd"\s*:\s*"took"/i.test(e.payload));
+  }).slice(0, 250);
+  $('log').innerHTML = list.map((e) => {
+    if (e.dir === 'note') return '<div class="le note ' + (e.level || '') + '"><span class="t">' + e.t + '</span><span><span class="dir note">NOTE</span></span><span class="body">' + esc(e.text) + '</span></div>';
+    const body = pr && !isData(e) && !/"cmd"\s*:\s*"took"/i.test(e.payload) ? '<pre>' + esc(pretty(e.payload)) + '</pre>' : '<pre>' + esc(e.payload) + '</pre>';
+    return '<div class="le ' + e.dir + '"><span class="t">' + e.t + '</span><span><span class="dir ' + e.dir + '">' + (e.dir === 'out' ? 'SENT →' : '← RECV') + '</span></span>' +
+      '<span class="body"><span class="tp">' + esc(e.topic) + '</span>' + ackHtml(e) + body + '</span></div>';
+  }).join('') || '<div class="muted" style="padding:10px 12px;">No messages yet.</div>';
+  const ls = S.log.slice().reverse().find((e) => e.dir === 'out' && !isData(e));
+  const lr = S.log.slice().reverse().find((e) => e.dir === 'in' && !isData(e));
+  const ld = S.log.slice().reverse().find((e) => e.dir !== 'note' && isData(e));
+  $('ldDir').textContent = S.role === 'board' ? 'BIN WEIGHTS SENT →' : '← BIN WEIGHTS RECEIVED';
+  $('lastData').textContent = ld ? pretty(ld.payload) : 'no bin weights yet';
+  $('ldMeta').textContent = ld ? ld.t + '  ' + ld.topic : (S.conn.dataTopic ? '— on ' + S.conn.dataTopic : 'bin weight topic is off');
+  $('lastSent').textContent = ls ? pretty(ls.payload) : 'nothing sent yet';
+  $('lsMeta').innerHTML = ls ? esc(ls.t + '  ' + ls.topic) + ' ' + ackHtml(ls) : '—';
+  $('lastRecv').textContent = lr ? pretty(lr.payload) : 'nothing received yet';
+  $('lrMeta').textContent = lr ? lr.t + '  ' + lr.topic : '—';
+}
+['hideData', 'hideTook', 'hideNotes', 'pretty'].forEach((id) => $(id).addEventListener('change', () => { if (S) renderLog(); }));
+$('clearLog').addEventListener('click', () => act({ action:'clearLog' }));
+
+/* ---------------- software results ---------------- */
+function renderSaved() {
+  const sv = S.software.saved;
+  $('saved').innerHTML = sv.length ? sv.map((s) =>
+    '<tr class="' + (s.need !== null && s.qtyTaken > s.need ? 'over' : '') + '"><td>' + esc(s.heat) + '</td><td>' + esc(s.furnace) + '</td><td>' + esc(s.label) + '</td><td>B' + s.bin + '</td><td>' + esc(s.el) +
+    '</td><td class="n">' + fmt(s.need) + '</td><td class="n q">' + fmt(s.qtyTaken) + '</td></tr>').join('')
+    : '<tr><td colspan="7" class="muted">Nothing saved yet — a bin closes to save its take.</td></tr>';
+  const tk = S.software.takes;
+  $('takes').innerHTML = tk.length ? tk.map((r) =>
+    '<tr class="' + (r.over ? 'over' : '') + '"><td>' + esc(new Date(r.at).toLocaleTimeString()) + '</td><td>B' + r.bin + '</td><td>' + esc(r.el) + '</td><td>' + esc((r.manual ? 'by hand · ' : '') + r.why) +
+    '</td><td>' + esc(r.heat || '— stock only') + '</td><td class="n">' + fmt(r.need) + '</td><td class="n q">' + fmt(r.taken) + '</td></tr>').join('')
+    : '<tr><td colspan="7" class="muted">No bin has closed yet.</td></tr>';
+}
+
+/* ---------------- status ---------------- */
+function render(d) {
+  const roleChanged = !S || S.role !== d.role;
+  S = d;
+  $('picker').classList.toggle('hide', !!d.role);
+  $('roleChip').classList.toggle('hide', !d.role);
+  $('roleName').textContent = d.role === 'software' ? 'SOFTWARE' : d.role === 'board' ? 'BOARD' : '';
+  $('roleName').className = d.role || '';
+  $('swPanel').classList.toggle('hide', d.role !== 'software');
+  $('bdPanel').classList.toggle('hide', d.role !== 'board');
+  $('savedCard').classList.toggle('hide', d.role !== 'software');
+  if (roleChanged && d.role === 'software') renderCM();
+
+  const req = $('reqTopic').value || 'melting/software/set-weights', rep = $('repTopic').value || 'bin/chargemix/reply', dat = $('dataTopic').value.trim();
+  const plus = dat ? ' and ' + esc(dat) : '';
+  $('topicHint').innerHTML = d.role === 'software' ? 'As the software: <b>sends</b> on ' + esc(req) + ', <b>listens</b> on ' + esc(rep) + plus + '.'
+    : d.role === 'board' ? 'As the board: <b>listens</b> on ' + esc(req) + ', <b>sends</b> on ' + esc(rep) + plus + '.' : '';
+
+  const bar = $('statusbar'), c = d.conn;
+  const where = c.target === 'embedded' ? 'this IotBench (' + ((d.hostIps && d.hostIps[0]) ? d.hostIps[0].ip : 'this PC') + ':' + (d.brokerStatus ? d.brokerStatus.port : 1883) + ')' : c.host + ':' + c.port;
+  if (!d.role) { bar.className = 'statusbar s-off'; bar.textContent = 'choose a role'; }
+  else if (!d.link.on) { bar.className = 'statusbar s-off'; bar.textContent = 'not connected — fill in the broker and press Connect'; }
+  else if (!d.link.connected) { bar.className = 'statusbar s-err'; bar.textContent = '✕ connecting to ' + where + (d.link.error ? ' — ' + d.link.error : '…'); }
+  else { bar.className = 'statusbar s-on'; bar.innerHTML = '● connected to <b>' + esc(where) + '</b> as <b>' + esc(c.clientId) + '</b> — ' +
+    (d.role === 'software' ? 'sending on <b>' + esc(c.requestTopic) + '</b>, listening on <b>' + esc(c.replyTopic) + '</b>' + (c.dataTopic ? ' + <b>' + esc(c.dataTopic) + '</b>' : '')
+                           : 'listening on <b>' + esc(c.requestTopic) + '</b>, sending on <b>' + esc(c.replyTopic) + '</b>' + (c.dataTopic ? ' + <b>' + esc(c.dataTopic) + '</b>' : '')); }
+  $('btnConnect').textContent = d.link.on ? 'Reconnect' : 'Connect';
+  $('btnDisconnect').disabled = !d.link.on;
+  ['cmSave', 'cmRepeat', 'swDone', 'bdDone'].forEach((id) => { $(id).disabled = !d.link.connected; });
+  if (d.role === 'software') { renderRepeat(); renderSim(); }
+  document.querySelectorAll('#stages [data-send]').forEach((b) => { b.disabled = !d.link.connected; });
+
+  if (!d.role) return;
+  if (d.role === 'board') fillBoard(d.board);
+  if (d.rev === lastRev) return;
+  lastRev = d.rev;
+  updateBins();
+  renderLog();
+  if (d.role === 'software') renderSaved();
+}
+
+async function poll() {
+  try { const r = await fetch('/api/bin'); render(await r.json()); }
+  catch (e) { $('statusbar').className = 'statusbar s-err'; $('statusbar').textContent = 'cannot reach IotBench: ' + e.message; }
+}
+
+loadConn(); loadCM(); poll(); setInterval(poll, 500);
+</script>
+</body>
+</html>

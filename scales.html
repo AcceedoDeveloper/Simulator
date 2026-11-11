@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>IotBench — Scale Panel</title>
+<style>
+  :root { --bg:#0f172a; --card:#1e293b; --line:#334155; --txt:#e2e8f0; --mut:#94a3b8;
+          --acc:#38bdf8; --ok:#22c55e; --warn:#f59e0b; --bad:#ef4444; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--txt); padding:24px; }
+  a { color:var(--acc); text-decoration:none; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .sub { color:var(--mut); font-size:13px; margin-bottom:16px; }
+  .statusbar { padding:10px 14px; border-radius:8px; font-size:13px; margin-bottom:20px; border:1px solid var(--line); }
+  .s-on { background:rgba(34,197,94,.12); color:var(--ok); }
+  .s-off { background:rgba(148,163,184,.12); color:var(--mut); }
+  .s-err { background:rgba(239,68,68,.12); color:var(--bad); }
+  .bins { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; }
+  .bin { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; }
+  .bin .top { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+  .bin .title { font-weight:600; }
+  .dot { display:inline-block; width:9px; height:9px; border-radius:50%; background:var(--line); margin-right:6px; }
+  .dot.live { background:var(--ok); box-shadow:0 0 6px var(--ok); }
+  .kgbig { font-size:30px; font-family:ui-monospace,Consolas,monospace; margin:6px 0; }
+  .kgbig small { font-size:14px; color:var(--mut); }
+  .meta { font-size:11px; color:var(--mut); margin-bottom:10px; }
+  input[type=text]{ background:#0b1220; border:1px solid var(--line); color:var(--txt); border-radius:6px; padding:6px 8px; font-family:ui-monospace,Consolas,monospace; font-size:13px; width:100%; }
+  input:focus{ outline:none; border-color:var(--acc); }
+  input[type=range]{ width:100%; margin:10px 0 6px; accent-color:var(--acc); }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .lab { font-size:11px; color:var(--mut); }
+  .btns { display:flex; gap:6px; margin-top:8px; }
+  button { background:transparent; color:var(--txt); border:1px solid var(--line); border-radius:6px; padding:5px 10px; font-size:12px; cursor:pointer; }
+  button:hover { border-color:var(--acc); }
+  .log { background:#0b1220; border:1px solid var(--line); border-radius:10px; padding:12px; margin-top:20px;
+         font-family:ui-monospace,Consolas,monospace; font-size:12px; height:220px; overflow-y:auto; white-space:pre; }
+  .l-RX{color:var(--acc);} .l-TX{color:var(--ok);} .l---{color:var(--warn);} .l-SET{color:var(--mut);}
+</style>
+</head>
+<body>
+  <h1>IotBench — Scale Panel</h1>
+  <div class="sub">6 weighing scales as Modbus RTU slaves (FC03 @ 0x0025), weight in grams. &nbsp;·&nbsp; <a href="/">→ Reply editor</a> &nbsp;·&nbsp; <a href="/mqtt">→ MQTT</a> &nbsp;·&nbsp; <a href="/furnace">→ Furnace/Bunker</a></div>
+
+  <div class="statusbar s-off" id="statusbar">checking serial…</div>
+
+  <div class="bins" id="bins"></div>
+
+  <div class="log" id="log"></div>
+
+<script>
+const MAXG = 50000;                 // slider max (grams)
+let lastSeq = 0;
+const logLines = [];
+
+function kg(g){ return (g/1000).toFixed(3); }
+
+function makeBin(n){
+  const d=document.createElement('div'); d.className='bin'; d.id='bin'+n;
+  d.innerHTML =
+    '<div class="top"><span class="title">Bin '+n+'</span>'+
+      '<span class="meta"><span class="dot" id="dot'+n+'"></span><span id="polls'+n+'">0</span> polls</span></div>'+
+    '<div class="kgbig"><span id="kgbig'+n+'">0.000</span> <small>kg</small></div>'+
+    '<div class="meta" id="served'+n+'">served: — · last poll: —</div>'+
+    '<input type="range" min="0" max="'+MAXG+'" step="10" id="slider'+n+'">'+
+    '<div class="grid2">'+
+      '<div><div class="lab">grams</div><input type="text" inputmode="numeric" id="g'+n+'"></div>'+
+      '<div><div class="lab">kg</div><input type="text" inputmode="decimal" id="kgi'+n+'"></div>'+
+    '</div>'+
+    '<div class="btns"><button data-b="'+n+'" data-v="0">0</button>'+
+      '<button data-b="'+n+'" data-d="-100">−100 g</button>'+
+      '<button data-b="'+n+'" data-d="100">+100 g</button>'+
+      '<button data-b="'+n+'" data-v="12480">12.48 kg</button></div>';
+  return d;
+}
+
+const binsEl=document.getElementById('bins');
+for(let n=1;n<=6;n++) binsEl.appendChild(makeBin(n));
+
+let applyTimer={};
+function apply(n, grams){
+  grams=Math.max(0, Math.trunc(Number(grams)||0));
+  // reflect immediately in the fields (respect focus)
+  const gEl=document.getElementById('g'+n), kEl=document.getElementById('kgi'+n), sEl=document.getElementById('slider'+n);
+  if(document.activeElement!==gEl) gEl.value=grams;
+  if(document.activeElement!==kEl) kEl.value=kg(grams);
+  sEl.value=Math.min(grams,MAXG);
+  document.getElementById('kgbig'+n).textContent=kg(grams);
+  clearTimeout(applyTimer[n]);
+  applyTimer[n]=setTimeout(()=>{
+    fetch('/api/bins',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({bin:n,grams})});
+  },150);
+}
+
+for(let n=1;n<=6;n++){
+  document.getElementById('g'+n).addEventListener('input',e=>apply(n,e.target.value));
+  document.getElementById('kgi'+n).addEventListener('input',e=>apply(n,Math.round(Number(e.target.value)*1000)));
+  document.getElementById('slider'+n).addEventListener('input',e=>apply(n,e.target.value));
+}
+document.getElementById('bins').addEventListener('click',e=>{
+  const b=e.target.getAttribute('data-b'); if(!b) return;
+  const cur=Number(document.getElementById('g'+b).value)||0;
+  if(e.target.hasAttribute('data-v')) apply(Number(b), Number(e.target.getAttribute('data-v')));
+  else if(e.target.hasAttribute('data-d')) apply(Number(b), cur+Number(e.target.getAttribute('data-d')));
+});
+
+function renderStatus(st){
+  const el=document.getElementById('statusbar');
+  if(st.open){ el.className='statusbar s-on'; el.textContent='● Serial connected: '+st.path+' @ '+st.baud+' 8N1 — Modbus RTU slave live'; }
+  else if(st.path){ el.className='statusbar s-err'; el.textContent='✕ Serial '+st.path+' not open'+(st.error?(' — '+st.error):''); }
+  else { el.className='statusbar s-off'; el.textContent='○ Serial OFF — start the server as:  node server.js <COMx>  (weights still settable, just not served)'; }
+}
+
+function pushLog(entries){
+  if(!entries||!entries.length) return;
+  const box=document.getElementById('log');
+  const atBottom = box.scrollTop+box.clientHeight >= box.scrollHeight-8;
+  entries.forEach(e=>{
+    lastSeq=Math.max(lastSeq,e.seq);
+    logLines.push('<span class="l-'+e.dir+'">['+e.t+'] '+e.dir.padEnd(3)+' '+(e.hex||'').padEnd(27)+' '+e.note+'</span>');
+  });
+  while(logLines.length>120) logLines.shift();
+  box.innerHTML=logLines.join('\n');
+  if(atBottom) box.scrollTop=box.scrollHeight;
+}
+
+async function poll(){
+  try{
+    const r=await fetch('/api/bins?since='+lastSeq); const j=await r.json();
+    renderStatus(j.status);
+    for(let n=1;n<=6;n++){
+      const g=j.weights[n]||0, m=j.meta[n]||{polls:0,lastAt:0,lastServed:0};
+      const gEl=document.getElementById('g'+n), kEl=document.getElementById('kgi'+n);
+      if(document.activeElement!==gEl && document.activeElement!==kEl && document.activeElement!==document.getElementById('slider'+n)){
+        gEl.value=g; kEl.value=kg(g); document.getElementById('slider'+n).value=Math.min(g,MAXG);
+      }
+      document.getElementById('kgbig'+n).textContent=kg(g);
+      document.getElementById('polls'+n).textContent=m.polls;
+      const ago=m.lastAt? Math.round((Date.now()-m.lastAt)/100)/10 : null;
+      document.getElementById('served'+n).textContent='served: '+m.lastServed+' g · last poll: '+(ago!==null? ago+'s ago':'—');
+      document.getElementById('dot'+n).className='dot'+((m.lastAt && (Date.now()-m.lastAt)<2000)?' live':'');
+    }
+    pushLog(j.log);
+  }catch(e){}
+}
+
+setInterval(poll,500);
+poll();
+</script>
+</body>
+</html>

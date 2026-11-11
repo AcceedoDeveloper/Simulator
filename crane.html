@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>IotBench — Bin / Crane Data</title>
+<style>
+  :root { --bg:#0f172a; --card:#1e293b; --line:#334155; --txt:#e2e8f0; --mut:#94a3b8;
+          --acc:#38bdf8; --ok:#22c55e; --warn:#f59e0b; --bad:#ef4444; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--txt); padding:24px; }
+  a { color:var(--acc); text-decoration:none; }
+  h1 { font-size:20px; margin:0; }
+  .top { display:flex; align-items:center; gap:16px; flex-wrap:wrap; margin-bottom:4px; }
+  .view { display:inline-flex; border:1px solid var(--line); border-radius:9px; overflow:hidden; }
+  .view a, .view span { padding:7px 18px; font-size:13px; font-weight:600; color:var(--txt); }
+  .view .on { background:var(--acc); color:#0b1220; }
+  .sub { color:var(--mut); font-size:13px; margin-bottom:16px; }
+  .statusbar { padding:12px 14px; border-radius:8px; font-size:13px; margin-bottom:16px; border:1px solid var(--line); }
+  .s-on { background:rgba(34,197,94,.12); color:var(--ok); }
+  .s-off { background:rgba(148,163,184,.10); color:var(--mut); }
+  .s-err { background:rgba(239,68,68,.12); color:var(--bad); }
+  .cols { display:grid; grid-template-columns:minmax(300px,380px) 1fr; gap:16px; align-items:start; }
+  @media (max-width:820px) { .cols { grid-template-columns:1fr; } }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; margin-bottom:16px; }
+  .card h2 { font-size:13px; margin:0 0 12px; color:var(--acc); text-transform:uppercase; letter-spacing:.04em; }
+  label { display:block; font-size:12px; color:var(--mut); margin:12px 0 4px; }
+  .radio { display:flex; gap:14px; flex-wrap:wrap; margin-top:2px; }
+  .radio label { display:flex; align-items:center; gap:6px; margin:0; font-size:13px; color:var(--txt); cursor:pointer; }
+  input[type=text], input[type=password], input[type=number], select {
+        width:100%; background:#0b1220; border:1px solid var(--line); border-radius:6px; color:var(--txt);
+        padding:8px 10px; font-size:14px; font-family:ui-monospace,Consolas,monospace; }
+  .row2 { display:grid; grid-template-columns:1fr 90px; gap:8px; }
+  .row2b { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .quick { margin-top:6px; display:flex; flex-wrap:wrap; gap:6px; }
+  .quick button { background:rgba(56,189,248,.12); color:var(--acc); border:1px solid var(--line); border-radius:20px;
+        padding:4px 10px; font-size:12px; cursor:pointer; }
+  .actions { margin-top:16px; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  button.primary { background:var(--acc); color:#0b1220; border:none; border-radius:8px; padding:10px 18px;
+        font-size:14px; font-weight:600; cursor:pointer; }
+  button.ghost { background:transparent; color:var(--txt); border:1px solid var(--line); border-radius:8px; padding:10px 14px;
+        font-size:14px; cursor:pointer; }
+  button:disabled { opacity:.45; cursor:default; }
+  .err { color:var(--bad); font-size:12px; margin-top:8px; min-height:16px; }
+  .muted { color:var(--mut); font-size:12px; }
+  .hide { display:none; }
+  .secwrap { display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+  .sec { font-size:30px; font-weight:700; font-family:ui-monospace,Consolas,monospace; min-width:64px; text-align:center;
+         padding:6px 16px; border-radius:10px; border:2px solid var(--line); }
+  .sec.v0 { color:var(--mut); } .sec.v1 { color:var(--ok); border-color:var(--ok); }
+  .sec.v2 { color:var(--acc); border-color:var(--acc); } .sec.v3 { color:var(--warn); border-color:var(--warn); }
+  .secname { font-size:15px; }
+  .bar { height:8px; background:#0b1220; border-radius:6px; overflow:hidden; border:1px solid var(--line); }
+  .bar > i { display:block; height:100%; background:var(--acc); width:0; }
+  .bins { margin-top:14px; }
+  .bin { display:grid; grid-template-columns:132px 1fr 72px 14px; gap:10px; align-items:center; padding:5px 0;
+         font-family:ui-monospace,Consolas,monospace; font-size:13px; }
+  .bin .nm { color:var(--mut); }
+  .bin .g { text-align:right; }
+  .dot { width:10px; height:10px; border-radius:50%; background:var(--bad); }
+  .dot.on { background:var(--ok); }
+  .hook { margin-top:14px; display:flex; gap:22px; flex-wrap:wrap; font-family:ui-monospace,Consolas,monospace; font-size:13px; }
+  .hook .k { color:var(--mut); font-size:11px; display:block; }
+  .pill { display:inline-block; padding:1px 8px; border-radius:10px; font-size:12px; }
+  .pill.ok { background:rgba(34,197,94,.15); color:var(--ok); } .pill.no { background:rgba(239,68,68,.15); color:var(--bad); }
+  .preview { background:#0b1220; border:1px solid var(--line); border-radius:8px; padding:10px 12px;
+        font-family:ui-monospace,Consolas,monospace; font-size:12px; word-break:break-all; }
+  label.sw { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--txt); cursor:pointer; margin:0; }
+  .seg { display:flex; gap:6px; flex-wrap:wrap; }
+  .seg button { background:transparent; color:var(--txt); border:1px solid var(--line); border-radius:8px; padding:8px 12px; font-size:13px; cursor:pointer; }
+  .seg button.on { background:var(--acc); color:#0b1220; border-color:var(--acc); font-weight:600; }
+  .mrow { display:grid; grid-template-columns:96px 100px 1fr auto; gap:8px; align-items:center; padding:3px 0;
+          font-family:ui-monospace,Consolas,monospace; font-size:13px; }
+  .mrow .nm { color:var(--mut); }
+  .mrow input[type=number] { padding:6px 8px; }
+  .steps { display:flex; gap:4px; flex-wrap:wrap; }
+  .steps button { background:#0b1220; color:var(--txt); border:1px solid var(--line); border-radius:6px; padding:5px 8px; font-size:12px; cursor:pointer; }
+  .steps button:hover { border-color:var(--acc); }
+  label.ck { display:flex; align-items:center; gap:5px; margin:0; font-size:12px; color:var(--txt); }
+  .log { background:#0b1220; border:1px solid var(--line); border-radius:10px; padding:12px;
+         font-family:ui-monospace,Consolas,monospace; font-size:12px; height:200px; overflow-y:auto; white-space:pre-wrap; word-break:break-all; }
+</style>
+</head>
+<body>
+  <div class="top">
+    <h1>IotBench — Bin / Crane Data</h1>
+    <!-- switch-over: the charge-mix bin board simulator lives at /bin -->
+    <div class="view"><span class="on">Crane</span><a href="/bin" title="Charge-mix bin board: act as the software or the board">Bin</a></div>
+  </div>
+  <div class="sub">Replays the melting-line field cycle and publishes the ESP32's <code>bin/data</code> JSON — for testing the app when the boards are not flashed or not on the desk. &nbsp;·&nbsp; <a href="/">Reply editor</a> &nbsp;·&nbsp; <a href="/scales">Scale panel</a> &nbsp;·&nbsp; <a href="/mqtt">MQTT monitor</a> &nbsp;·&nbsp; <a href="/furnace">Furnace/Bunker</a></div>
+
+  <div class="statusbar s-off" id="statusbar">not running</div>
+
+  <div class="cols">
+    <div>
+      <div class="card">
+        <h2>Publish to</h2>
+        <div class="radio">
+          <label><input type="radio" name="mode" value="embedded" checked /> This IotBench's broker</label>
+          <label><input type="radio" name="mode" value="external" /> External broker</label>
+        </div>
+
+        <div id="extBox" class="hide">
+          <label for="host">Broker host / IP</label>
+          <div class="row2">
+            <input type="text" id="host" placeholder="e.g. 192.168.1.50" />
+            <input type="number" id="port" value="1883" min="1" max="65535" />
+          </div>
+          <div class="quick"><button type="button" id="qMool">broker.mqtt.cool : 1883</button></div>
+          <div class="row2b">
+            <div><label for="user">Username (optional)</label><input type="text" id="user" autocomplete="off" /></div>
+            <div><label for="pass">Password</label><input type="password" id="pass" autocomplete="off" /></div>
+          </div>
+          <div class="muted" style="margin-top:6px;">Plain TCP only (no TLS). The plant broker is refused.</div>
+        </div>
+
+        <label for="topic">Topic</label>
+        <input type="text" id="topic" value="bin/data" />
+
+        <label for="posTopic">X position topic <span class="muted">(second topic, same payload as the field ESP32 distance publish — clear it to turn off)</span></label>
+        <input type="text" id="posTopic" value="melting_furnace_distance" />
+
+        <label for="speed">Speed</label>
+        <select id="speed">
+          <option value="1">x1 — field cadence (1 message/s)</option>
+          <option value="2">x2</option>
+          <option value="5">x5</option>
+          <option value="10">x10 — quick demo (10 messages/s)</option>
+        </select>
+
+        <div class="actions">
+          <button class="primary" id="btnStart">Start</button>
+          <button class="ghost" id="btnStop" disabled>Stop</button>
+          <button class="ghost" id="btnRestart" disabled>Restart cycle</button>
+        </div>
+        <div class="err" id="err"></div>
+      </div>
+
+      <div class="card">
+        <h2>Notes</h2>
+        <div class="muted" id="notes">—</div>
+      </div>
+    </div>
+
+    <div>
+      <div class="card" id="seqCard">
+        <h2>Sequence</h2>
+        <div class="actions" style="margin-top:0;">
+          <select id="seqSel" style="width:auto;flex:1;min-width:220px;"></select>
+          <button class="primary" id="seqRun">Run</button>
+          <button class="ghost" id="seqStop" disabled>Stop</button>
+        </div>
+        <div class="bar" style="margin-top:12px;"><i id="seqBar"></i></div>
+        <div class="muted" id="seqInfo" style="margin-top:6px;">Press Start (left), then Run. A sequence drives section, X and hook through manual mode; bin weights keep whatever you set below.</div>
+        <div class="err" id="seqErr"></div>
+      </div>
+
+      <div class="card" id="manCard">
+        <h2>Manual control</h2>
+        <label class="sw"><input type="checkbox" id="manOn" /> Manual mode — script paused, the values below are sent as you set them</label>
+        <div class="muted" id="manHint" style="margin-top:4px;">Off: the field cycle plays by itself. Changes go out with the next 1 s publish.</div>
+        <div id="manBody" class="hide">
+          <label>Section (sec)</label>
+          <div class="seg" id="secBtns">
+            <button type="button" data-s="0">0 · OUT left</button><button type="button" data-s="1">1 · SEC 1</button>
+            <button type="button" data-s="2">2 · SEC 2</button><button type="button" data-s="3">3 · OUT right</button>
+          </div>
+          <label>Bin weights (g) — type a value, or step it · tick = scale online</label>
+          <div id="manBins"></div>
+          <label>Hook weight (signed value, hookConv) · raw is derived: negative → 65535 + value</label>
+          <div class="mrow">
+            <span class="nm">Hook</span><input type="number" id="mHook" value="0" />
+            <span class="steps" data-for="hook"><button type="button" data-d="-500">−500</button><button type="button" data-d="-100">−100</button><button type="button" data-d="100">+100</button><button type="button" data-d="500">+500</button><button type="button" data-z="1">0</button></span>
+            <label class="ck"><input type="checkbox" id="mHookOk" /> hookOk</label>
+          </div>
+          <label>X position (cm) · Y (cm)</label>
+          <div class="mrow">
+            <span class="nm">X</span><input type="number" id="mX" value="1500" />
+            <span class="steps" data-for="x"><button type="button" data-d="-100">−100</button><button type="button" data-d="-10">−10</button><button type="button" data-d="10">+10</button><button type="button" data-d="100">+100</button></span>
+          </div>
+          <div class="mrow">
+            <span class="nm">Y</span><input type="number" id="mY" value="480" />
+            <span class="steps" data-for="y"><button type="button" data-d="-10">−10</button><button type="button" data-d="10">+10</button></span>
+          </div>
+          <div class="muted" style="margin-top:8px;">X goes out exactly as typed on the position topic (needs the X position topic filled in). Bins are clamped 0–99999 g, hook ±7999.</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Live — what the app is being sent</h2>
+        <div class="secwrap">
+          <div class="sec v0" id="sec">0</div>
+          <div><div class="secname" id="secname">OUT (left)</div><div class="muted" id="cyc">cycle 0</div></div>
+        </div>
+        <div class="bar" style="margin-top:12px;"><i id="cycbar"></i></div>
+
+        <div class="bins" id="bins"></div>
+
+        <div class="hook">
+          <div><span class="k">hook (raw)</span><span id="hRaw">0</span></div>
+          <div><span class="k">hookConv (signed)</span><span id="hConv">0</span></div>
+          <div><span class="k">hookOk</span><span id="hOk" class="pill no">0</span></div>
+          <div><span class="k">onl</span><span id="onl">0</span></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Last payload</h2>
+        <div class="preview" id="payload">—</div>
+        <div class="preview" id="posPayload" style="margin-top:6px;"></div>
+        <div class="muted" style="margin-top:8px;" id="counts">sent 0 · dropped 0</div>
+      </div>
+
+      <div class="card">
+        <h2>Published messages</h2>
+        <div class="log" id="log"></div>
+      </div>
+    </div>
+  </div>
+
+<script>
+const NAMES = ['Carbon','Silica','Manganese','Copper','Tin','Copper-act','Tin-act','Zinc'];
+const SECNAME = ['OUT (left)','SECTION 1','SECTION 2','OUT (right)'];
+const MAXG = 20000;                       // bar full-scale, grams
+let lastSeq = 0, running = false;
+const logLines = [];
+const $ = (id) => document.getElementById(id);
+
+/* remember the external target between visits */
+function save(){ try { localStorage.setItem('binsim', JSON.stringify({host:$('host').value, port:$('port').value, topic:$('topic').value, posTopic:$('posTopic').value, user:$('user').value})); } catch(e){} }
+function load(){ try { const v=JSON.parse(localStorage.getItem('binsim')||'{}');
+  if(typeof v.posTopic==='string') $('posTopic').value=v.posTopic;
+  if(v.host) $('host').value=v.host; if(v.port) $('port').value=v.port; if(v.topic) $('topic').value=v.topic; if(v.user) $('user').value=v.user; } catch(e){} }
+
+$('bins').innerHTML = NAMES.map((n,i)=>
+  '<div class="bin"><span class="nm">B'+(i+1)+' '+n+'</span><div class="bar"><i id="bb'+i+'"></i></div><span class="g" id="bg'+i+'">0</span><span class="dot" id="bd'+i+'"></span></div>').join('');
+
+function mode(){ return document.querySelector('input[name=mode]:checked').value; }
+document.querySelectorAll('input[name=mode]').forEach(r=>r.addEventListener('change',()=>{
+  $('extBox').classList.toggle('hide', mode()!=='external'); }));
+$('qMool').addEventListener('click',()=>{ $('host').value='broker.mqtt.cool'; $('port').value=1883; });
+
+function render(d){
+  running = d.running;
+  const bar=$('statusbar');
+  if(!d.running){ bar.className='statusbar s-off'; bar.textContent='not running — choose a target and press Start'; }
+  else if(d.opts.mode==='external' && !d.link.connected){
+    bar.className='statusbar s-err';
+    bar.textContent='✕ connecting to '+d.opts.host+':'+d.opts.port+(d.link.error?(' — '+d.link.error):'…');
+  } else {
+    bar.className='statusbar s-on';
+    bar.innerHTML = '● publishing to <b>'+d.opts.topic+'</b>'+(d.opts.posTopic?' + <b>'+d.opts.posTopic+'</b>':'')+' on '+
+      (d.opts.mode==='embedded' ? 'this IotBench ('+((d.hostIps&&d.hostIps[0])?d.hostIps[0].ip:'this PC')+':'+(d.brokerStatus?d.brokerStatus.port:1883)+')'
+                                : d.opts.host+':'+d.opts.port)+' &nbsp;·&nbsp; x'+d.opts.speed;
+  }
+  $('btnStart').disabled = d.running; $('btnStop').disabled = !d.running; $('btnRestart').disabled = !d.running;
+
+  syncManual(d);
+  const s=d.state;
+  $('sec').textContent=s.sec; $('sec').className='sec v'+s.sec; $('secname').textContent=SECNAME[s.sec]||'';
+  $('cyc').textContent='cycle '+s.cycle+' · '+(d.tInCycleMs/1000).toFixed(1)+' / '+(d.cycleMs/1000).toFixed(1)+' s';
+  $('cycbar').style.width=(100*d.tInCycleMs/d.cycleMs)+'%';
+  s.bins.forEach((w,i)=>{
+    $('bb'+i).style.width=Math.min(100,100*w/MAXG)+'%';
+    $('bg'+i).textContent=w+' g';
+    $('bd'+i).className='dot'+(((s.onl>>i)&1)?' on':'');
+  });
+  $('hRaw').textContent=s.hook; $('hConv').textContent=s.hookConv; $('onl').textContent=s.onl;
+  $('hOk').textContent=s.hookOk; $('hOk').className='pill '+(s.hookOk?'ok':'no');
+  $('payload').textContent = d.payload ? d.opts.topic+'   '+d.payload : '—';
+  $('posPayload').textContent = d.posPayload ? d.opts.posTopic+'   '+d.posPayload : '';
+  $('counts').textContent='sent '+d.sent+' · dropped '+d.dropped+(d.dropped?'  (dropped = broker not connected at that moment)':'');
+  $('notes').innerHTML = (d.notes&&d.notes.length)? d.notes.map(n=>n.replace(/</g,'&lt;')).join('<br>') : '—';
+
+  if(d.messages && d.messages.length){
+    const box=$('log'); const atBottom=box.scrollTop+box.clientHeight>=box.scrollHeight-10;
+    d.messages.forEach(m=>{ lastSeq=Math.max(lastSeq,m.seq); logLines.push('['+m.t+'] '+(m.ok?'→ ':'✕ dropped ')+m.topic+'  '+m.payload); });
+    while(logLines.length>150) logLines.shift();
+    box.textContent=logLines.join('\n'); if(atBottom) box.scrollTop=box.scrollHeight;
+  }
+}
+
+async function poll(){
+  try { const r=await fetch('/api/crane?since='+lastSeq); render(await r.json()); } catch(e){ $('statusbar').className='statusbar s-err'; $('statusbar').textContent='cannot reach IotBench: '+e.message; }
+}
+
+async function post(path, body){
+  try {
+    const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})});
+    const txt=await r.text();
+    try { return JSON.parse(txt); }
+    catch(e){ return { ok:false, error:'server answered HTTP '+r.status+' (not JSON) - restart IotBench so it loads the latest server.js' }; }
+  } catch(e){ return { ok:false, error:'cannot reach IotBench: '+e.message }; }
+}
+
+$('btnStart').addEventListener('click', async ()=>{
+  $('err').textContent=''; save();
+  const res = await post('/api/crane/start',{ mode:mode(), host:$('host').value, port:$('port').value,
+      topic:$('topic').value, posTopic:$('posTopic').value, speed:$('speed').value, username:$('user').value, password:$('pass').value });
+  if(!res.ok) { $('err').textContent=res.error||'could not start'; return; }
+  lastSeq=0; logLines.length=0; $('log').textContent=''; poll();
+});
+$('btnStop').addEventListener('click', async ()=>{ await post('/api/crane/stop'); poll(); });
+$('btnRestart').addEventListener('click', async ()=>{ await post('/api/crane/restart'); poll(); });
+
+/* ---- manual control ---- */
+$('manBins').innerHTML = NAMES.map((n,i)=>
+  '<div class="mrow"><span class="nm">B'+(i+1)+' '+n+'</span><input type="number" min="0" max="99999" id="mb'+i+'" value="0" />'+
+  '<span class="steps" data-for="bin" data-i="'+i+'"><button type="button" data-d="-1000">−1000</button><button type="button" data-d="-100">−100</button>'+
+  '<button type="button" data-d="100">+100</button><button type="button" data-d="1000">+1000</button><button type="button" data-z="1">0</button></span>'+
+  '<label class="ck"><input type="checkbox" id="mo'+i+'" /> on</label></div>').join('');
+
+let manInit = false;
+const focused = (el) => document.activeElement === el;
+function fillManual(m){
+  $('manOn').checked = m.on; $('manBody').classList.toggle('hide', !m.on);
+  document.querySelectorAll('#secBtns button').forEach(b=>b.classList.toggle('on', Number(b.dataset.s)===m.sec));
+  m.bins.forEach((w,i)=>{ const e=$('mb'+i); if(!focused(e)) e.value=w; $('mo'+i).checked=!!((m.onl>>i)&1); });
+  if(!focused($('mHook'))) $('mHook').value=m.hook;
+  if(!focused($('mX'))) $('mX').value=m.x;
+  if(!focused($('mY'))) $('mY').value=m.y;
+  $('mHookOk').checked=!!m.hookOk;
+}
+function onlMask(){ let v=0; for(let i=0;i<8;i++) if($('mo'+i).checked) v|=1<<i; return v; }
+async function manual(patch){
+  const r = await post('/api/crane/manual', patch);
+  if(r.ok) fillManual(r.manual); else $('err').textContent=r.error||'manual update failed';
+}
+function syncManual(d){
+  if(!manInit){ manInit=true; fillManual(d.manual); }
+  else if(d.seq.running || d.manual.on !== $('manOn').checked) fillManual(d.manual);
+
+  const sel=$('seqSel');
+  if(sel.options.length!==d.seq.available.length)
+    sel.innerHTML=d.seq.available.map(a=>'<option value="'+a.name+'">'+a.title+'</option>').join('');
+  $('seqRun').disabled = d.seq.running; $('seqStop').disabled = !d.seq.running;
+  $('seqBar').style.width = d.seq.total ? Math.min(100,100*d.seq.t/d.seq.total)+'%' : '0';
+  if(d.seq.running) $('seqInfo').textContent = d.seq.name+' · '+(d.seq.t/1000).toFixed(0)+' / '+(d.seq.total/1000).toFixed(0)+' s · '+d.seq.label;
+  else if(d.seq.name && d.seq.total) $('seqInfo').textContent = d.seq.name+' finished/stopped — values held in manual mode. Untick Manual mode to resume the field cycle.';
+  $('manHint').textContent = d.running
+    ? (d.manual.on ? 'MANUAL — script paused. Changes go out with the next 1 s publish.' : 'Off: the field cycle plays by itself.')
+    : 'Press Start (left) to begin publishing — manual values are kept and used from the first message.';
+}
+$('seqRun').addEventListener('click', async ()=>{
+  $('seqErr').textContent='';
+  const r=await post('/api/crane/seq',{name:$('seqSel').value});
+  if(!r.ok) $('seqErr').textContent=r.error||'could not run the sequence'; else poll();
+});
+$('seqStop').addEventListener('click', async ()=>{ await post('/api/crane/seq',{action:'stop'}); poll(); });
+$('manOn').addEventListener('change', ()=>manual({on:$('manOn').checked}));
+$('secBtns').addEventListener('click', (e)=>{ const b=e.target.closest('button'); if(b) manual({sec:Number(b.dataset.s)}); });
+for(let i=0;i<8;i++){
+  $('mb'+i).addEventListener('change', ()=>manual({bin:{i, w:Number($('mb'+i).value)}}));
+  $('mo'+i).addEventListener('change', ()=>manual({onl:onlMask()}));
+}
+$('mHook').addEventListener('change', ()=>manual({hook:Number($('mHook').value)}));
+$('mHookOk').addEventListener('change', ()=>manual({hookOk:$('mHookOk').checked}));
+$('mX').addEventListener('change', ()=>manual({x:Number($('mX').value)}));
+$('mY').addEventListener('change', ()=>manual({y:Number($('mY').value)}));
+$('manBody').addEventListener('click', (e)=>{
+  const b=e.target.closest('.steps button'); if(!b) return;
+  const grp=b.parentElement, f=grp.dataset.for, z=b.dataset.z, dlt=Number(b.dataset.d||0);
+  if(f==='bin'){ const i=Number(grp.dataset.i), el=$('mb'+i); manual({bin:{i, w: z?0:Math.max(0,Number(el.value||0)+dlt)}}); }
+  else if(f==='hook'){ manual({hook: z?0:Number($('mHook').value||0)+dlt}); }
+  else if(f==='x'){ manual({x: Math.max(0,Number($('mX').value||0)+dlt)}); }
+  else if(f==='y'){ manual({y: Math.max(0,Number($('mY').value||0)+dlt)}); }
+});
+
+load(); poll(); setInterval(poll, 500);
+</script>
+</body>
+</html>

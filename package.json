@@ -1,0 +1,16 @@
+{
+  "name": "iotbench",
+  "version": "1.0.0",
+  "description": "IotBench - connectivity & reply test bench for ESP32/STM32 board <-> server testing (Janatics SkyFast IoT)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "scales": "node run-scales.js"
+  },
+  "dependencies": {
+    "aedes": "^1.1.1",
+    "serialport": "^12.0.0"
+  },
+  "license": "UNLICENSED",
+  "private": true
+}

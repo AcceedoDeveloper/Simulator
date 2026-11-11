@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>IotBench — PLC Panel</title>
+<style>
+  :root { --bg:#0f172a; --card:#1e293b; --line:#334155; --txt:#e2e8f0; --mut:#94a3b8;
+          --acc:#38bdf8; --ok:#22c55e; --warn:#f59e0b; --bad:#ef4444; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--txt); padding:24px; }
+  a { color:var(--acc); text-decoration:none; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .sub { color:var(--mut); font-size:13px; margin-bottom:16px; }
+  .statusbar { padding:10px 14px; border-radius:8px; font-size:13px; margin-bottom:16px; border:1px solid var(--line); }
+  .s-on { background:rgba(34,197,94,.12); color:var(--ok); }
+  .s-off { background:rgba(148,163,184,.12); color:var(--mut); }
+  .s-err { background:rgba(239,68,68,.12); color:var(--bad); }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:16px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; }
+  .title { font-weight:600; margin-bottom:8px; display:flex; justify-content:space-between; }
+  .big { display:flex; gap:18px; font-family:ui-monospace,Consolas,monospace; margin:6px 0 10px; }
+  .big div { font-size:28px; }
+  .big small { display:block; font-size:11px; color:var(--mut); font-family:system-ui; }
+  .lab { font-size:11px; color:var(--mut); }
+  .row { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; align-items:center; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:8px; }
+  input[type=text]{ background:#0b1220; border:1px solid var(--line); color:var(--txt); border-radius:6px; padding:6px 8px; font-family:ui-monospace,Consolas,monospace; font-size:13px; width:100%; }
+  input:focus{ outline:none; border-color:var(--acc); }
+  button { background:transparent; color:var(--txt); border:1px solid var(--line); border-radius:6px; padding:5px 10px; font-size:12px; cursor:pointer; }
+  button:hover { border-color:var(--acc); }
+  button.on { border-color:var(--warn); color:var(--warn); }
+  .regs { font-size:11px; color:var(--mut); font-family:ui-monospace,Consolas,monospace; margin-top:8px; }
+  .log { background:#0b1220; border:1px solid var(--line); border-radius:10px; padding:12px; margin-top:20px;
+         font-family:ui-monospace,Consolas,monospace; font-size:12px; height:260px; overflow-y:auto; white-space:pre; }
+  .l-RX{color:var(--acc);} .l-TX{color:var(--ok);} .l---{color:var(--warn);} .l-SET{color:var(--mut);} .l-RAW{color:#c084fc;}
+</style>
+</head>
+<body>
+  <h1>IotBench — PLC Panel (GDC)</h1>
+  <div class="sub">Machine PLC as Modbus RTU slave 1, 19200 8N2, FC03. The STM32 reads 31 registers from 0x00C6 every second.
+    &nbsp;·&nbsp; <a href="/">→ Reply editor</a> &nbsp;·&nbsp; <a href="/scales">→ Scales</a> &nbsp;·&nbsp; <a href="/mqtt">→ MQTT</a></div>
+
+  <div class="statusbar s-off" id="statusbar">checking serial…</div>
+
+  <div class="grid" id="stations"></div>
+
+  <div class="card" style="margin-top:16px">
+    <div class="title">Fault injection <span class="lab">checks the STM32's PLC=0 / PLCERR handling</span></div>
+    <div class="row">
+      <button id="fSilent">No reply</button>
+      <button id="fCrc">Bad CRC</button>
+      <span class="lab">reply delay ms</span><input type="text" id="fDelay" style="width:80px" value="0">
+      <button id="fDelaySet">Set</button>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <span class="lab">One-shot on the next</span><input type="text" id="osN" style="width:60px" value="1">
+      <span class="lab">reply(s):</span>
+      <button data-os="drop">Drop (timeout)</button>
+      <button data-os="short">Short reply</button>
+      <button data-os="exception">Exception</button>
+      <button data-os="wrongid">Wrong slave ID</button>
+      <button data-os="crc">Bad CRC</button>
+      <button data-os="clear">Clear</button>
+      <span class="lab" id="osState"></span>
+    </div>
+  </div>
+
+  <div class="log" id="log"></div>
+
+<script>
+const N = 4;
+let lastSeq = 0, faults = {};
+const logLines = [];
+
+async function api(path, body) {
+  const r = await fetch(path, body ? { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) } : {});
+  return r.json();
+}
+
+function card(n) {
+  const d = document.createElement('div'); d.className = 'card';
+  d.innerHTML =
+    '<div class="title">Station ' + n + '<span class="lab" id="auto' + n + '">auto off</span></div>' +
+    '<div class="big"><div><small>production</small><span id="p' + n + '">0</span></div>' +
+      '<div><small>rejection</small><span id="r' + n + '">0</span></div></div>' +
+    '<div class="row"><button data-s="' + n + '" data-k="prod" data-c="1">+1 part</button>' +
+      '<button data-s="' + n + '" data-k="prod" data-c="3">+3 parts</button>' +
+      '<button data-s="' + n + '" data-k="rej" data-c="1">+1 reject</button>' +
+      '<button data-s="' + n + '" data-reset="1">Reset to 0</button></div>' +
+    '<div class="grid2">' +
+      '<div><div class="lab">temp left °C</div><input type="text" id="tl' + n + '"></div>' +
+      '<div><div class="lab">temp right °C</div><input type="text" id="tr' + n + '"></div>' +
+      '<div><div class="lab">set production</div><input type="text" id="sp' + n + '"></div>' +
+      '<div><div class="lab">set rejection</div><input type="text" id="sr' + n + '"></div>' +
+    '</div>' +
+    '<div class="row"><button data-apply="' + n + '">Apply values</button></div>' +
+    '<div class="grid2">' +
+      '<div><div class="lab">auto: 1 part every (s), 0 = off</div><input type="text" id="ac' + n + '" value="0"></div>' +
+      '<div><div class="lab">reject every N parts</div><input type="text" id="ar' + n + '" value="0"></div>' +
+    '</div>' +
+    '<div class="row"><button data-auto="' + n + '">Set auto</button></div>' +
+    '<div class="regs" id="regs' + n + '"></div>';
+  return d;
+}
+const box = document.getElementById('stations');
+for (let n = 1; n <= N; n++) box.appendChild(card(n));
+
+box.addEventListener('click', async (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.k) await api('/api/plc', { action:'add', station:+b.dataset.s, kind:b.dataset.k, count:+b.dataset.c });
+  else if (b.dataset.reset) await api('/api/plc', { action:'set', station:+b.dataset.s, prod:0, rej:0 });
+  else if (b.dataset.apply) {
+    const n = b.dataset.apply, v = { action:'set', station:+n };
+    const f = (id) => document.getElementById(id).value.trim();
+    if (f('tl'+n) !== '') v.tempL = +f('tl'+n);
+    if (f('tr'+n) !== '') v.tempR = +f('tr'+n);
+    if (f('sp'+n) !== '') v.prod = +f('sp'+n);
+    if (f('sr'+n) !== '') v.rej = +f('sr'+n);
+    await api('/api/plc', v);
+    ['sp'+n, 'sr'+n].forEach((id) => document.getElementById(id).value = '');
+  } else if (b.dataset.auto) {
+    const n = b.dataset.auto;
+    await api('/api/plc', { action:'auto', station:+n,
+      cycleSec:+document.getElementById('ac'+n).value, rejEvery:+document.getElementById('ar'+n).value });
+  }
+  refresh();
+});
+
+document.querySelectorAll('[data-os]').forEach((b) => b.onclick = () => {
+  const m = b.dataset.os;
+  api('/api/plc', m === 'clear' ? { action:'oneshot', mode:'drop', count:0 }
+                                : { action:'oneshot', mode:m, count:+document.getElementById('osN').value }).then(refresh);
+});
+document.getElementById('fSilent').onclick = () => api('/api/plc', { action:'faults', silent:!faults.silent }).then(refresh);
+document.getElementById('fCrc').onclick    = () => api('/api/plc', { action:'faults', badCrc:!faults.badCrc }).then(refresh);
+document.getElementById('fDelaySet').onclick = () =>
+  api('/api/plc', { action:'faults', delayMs:+document.getElementById('fDelay').value }).then(refresh);
+
+let tempsLoaded = false;
+async function refresh() {
+  const d = await api('/api/plc?since=' + lastSeq);
+  const sb = document.getElementById('statusbar');
+  const st = d.status;
+  if (st.open) {
+    sb.className = 'statusbar s-on';
+    const ago = d.meta.lastAt ? ((Date.now() - d.meta.lastAt) / 1000).toFixed(1) + ' s ago' : 'never';
+    sb.textContent = `● ${st.path} @ ${st.baud} 8N${st.stopBits} — slave ${st.slave} — ${d.meta.polls} polls, last ${ago}` +
+      ` — raw bytes in: ${d.meta.rawBytes}, dropped (bad CRC/framing): ${d.meta.dropped}`;
+  } else if (st.path) {
+    sb.className = 'statusbar s-err'; sb.textContent = `✕ ${st.path}: ${st.error || 'not open'} (retrying)`;
+  } else {
+    sb.className = 'statusbar s-off'; sb.textContent = 'Serial OFF — start with  start.bat COM9 plc';
+  }
+  d.stations.forEach((s) => {
+    const n = s.station;
+    document.getElementById('p'+n).textContent = s.prod;
+    document.getElementById('r'+n).textContent = s.rej;
+    document.getElementById('auto'+n).textContent = s.auto.cycleSec ? `auto every ${s.auto.cycleSec} s` : 'auto off';
+    const h = (a) => '0x' + a.toString(16).toUpperCase().padStart(4, '0');
+    document.getElementById('regs'+n).textContent =
+      `prod ${h(s.regs.prod)}  rej ${h(s.regs.rej)}  tL ${h(s.regs.tempL)}  tR ${h(s.regs.tempR)}  (${s.tempL} / ${s.tempR} °C)`;
+    if (!tempsLoaded) { document.getElementById('tl'+n).value = s.tempL; document.getElementById('tr'+n).value = s.tempR; }
+  });
+  tempsLoaded = true;
+  faults = d.faults;
+  document.getElementById('fSilent').className = faults.silent ? 'on' : '';
+  document.getElementById('fCrc').className = faults.badCrc ? 'on' : '';
+  const os = faults.oneshot;
+  document.getElementById('osState').textContent = os.remaining
+    ? `pending: ${os.mode} x${os.remaining}` : `idle (${os.applied} applied so far)`;
+  const logEl = document.getElementById('log');
+  const atBottom = logEl.scrollTop + logEl.clientHeight >= logEl.scrollHeight - 5;
+  d.log.forEach((e) => {
+    lastSeq = e.seq;
+    logLines.push(`<span class="l-${e.dir}">[${e.t}] ${e.dir.padEnd(3)} ${e.hex}${e.note ? '   ' + e.note : ''}</span>`);
+  });
+  if (logLines.length > 300) logLines.splice(0, logLines.length - 300);
+  if (d.log.length) { logEl.innerHTML = logLines.join('\n'); if (atBottom) logEl.scrollTop = logEl.scrollHeight; }
+}
+refresh();
+setInterval(refresh, 1000);
+</script>
+</body>
+</html>
