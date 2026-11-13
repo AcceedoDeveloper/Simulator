@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PHSupport Simulator</title>
+<style>
+  :root{--bg:#eef1f6;--card:#fff;--ink:#141e2c;--ink2:#44546a;--muted:#6b7c93;--line:#e3e8ef;--accent:#2563eb;--soft:#e8f0fe;--good:#15803d;--goodbg:#e8f7ee;--bad:#b91c1c;--badbg:#fdecec;--mono:ui-monospace,"Cascadia Mono",Consolas,monospace}
+  @media (prefers-color-scheme:dark){:root{--bg:#0b121c;--card:#131d2a;--ink:#e9eff6;--ink2:#b2c1d2;--muted:#8495a8;--line:#22303f;--accent:#5b8def;--soft:#16263f;--good:#45c07f;--goodbg:#102a1c;--bad:#ef6f6f;--badbg:#2e1517}}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:13px/1.45 "Segoe UI",Inter,system-ui,sans-serif}
+  header{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;padding:14px 18px;background:var(--card);border-bottom:1px solid var(--line)}
+  h1{font-size:18px;margin:0} h2{font-size:13px;margin:0 0 8px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+  .sub{color:var(--muted);font-size:12px}
+  main{padding:16px 18px;display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(min(340px,100%),1fr));max-width:1500px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;min-width:0}
+  .wide{grid-column:1/-1}
+  .split{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:12px}
+  @media (max-width:760px){main{padding:12px}.split{grid-template-columns:1fr}}
+  .flow{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:6px 0 12px}
+  .cell{border:1px solid var(--line);border-radius:8px;padding:4px 8px;text-align:center;min-width:58px}
+  .cell b{display:block;font-size:16px} .cell span{font-size:11px;color:var(--muted)}
+  .arrow{color:var(--muted)}
+  table{width:100%;border-collapse:collapse}
+  .tbl{overflow-x:auto} th,td{text-align:left;padding:5px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+  th{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+  td.mono,.mono{font-family:var(--mono);font-size:12px}
+  .scroll{overflow:auto;max-height:340px}
+  tr.click{cursor:pointer} tr.click:hover td{background:var(--soft)}
+  label{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:6px 0}
+  input[type=number]{width:90px;font:inherit;padding:4px 6px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--ink)}
+  button{font:inherit;font-weight:600;border:1px solid var(--accent);background:var(--accent);color:#fff;border-radius:8px;padding:6px 14px;cursor:pointer}
+  button.ghost{background:transparent;color:var(--accent)}
+  .pill{display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:600}
+  .on{background:var(--goodbg);color:var(--good)} .off{background:var(--badbg);color:var(--bad)}
+  .stats{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px}
+  .stat{border:1px solid var(--line);border-radius:8px;padding:6px 8px} .stat span{font-size:11px;color:var(--muted)} .stat b{display:block;font-size:16px}
+  code{font-family:var(--mono);background:var(--soft);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+  .row-detail{font-family:var(--mono);font-size:12px;white-space:pre-wrap;word-break:break-all;max-height:340px;overflow:auto;background:var(--bg);border-radius:8px;padding:8px}
+  .muted{color:var(--muted)}
+  .view{display:inline-flex;border:1px solid var(--line);border-radius:9px;overflow:hidden}
+  .view a,.view span{padding:7px 18px;font-size:13px;font-weight:600;color:var(--ink);text-decoration:none}
+  .view .on{background:#38bdf8;color:#0b1220}
+  .titlebar{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <div class="titlebar"><h1>PHSupport SQL simulator</h1><div class="view"><a href="/crane">Crane</a><a href="/bin">Bin</a><span class="on">SCADA</span></div></div>
+    <div class="sub">Plays the plant database for the SMES production-flow sync · plant clock <span id="now" class="mono"></span></div>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center">
+    <span id="state" class="pill"></span>
+    <button id="toggle">Pause</button>
+    <button class="ghost" id="reset" title="Regenerate history and start again">Reset</button>
+  </div>
+</header>
+<main>
+  <section class="card wide">
+    <h2>Parts on the lines (by last cell written)</h2>
+    <div id="wip"></div>
+    <p class="sub">Each part enters Cell-01 every takt. When Cell-01 finishes, a row is <b>inserted</b> into <code>Line_x</code>; every later cell <b>updates</b> that row a few minutes after it finishes — like the plant's <code>Usp_Insert_L1</code> / <code>Usp_Upd_L1_Cn</code> jobs.</p>
+  </section>
+
+  <section class="card">
+    <h2>Backend connection</h2>
+    <p>In SMES open <b>Production Flow → Source Setup</b>, choose <b>Simulator / rows API</b> and enter:</p>
+    <p><code id="srcUrl"></code></p>
+    <p class="sub">Press <b>Test connection</b>, <b>Save</b>, then <b>Sync this line now</b> for one line at a time.</p>
+    <p class="sub">The sync then reads <code>GET /api/phsupport/rows?table=Line_1&amp;hours=6</code>, <code>…Production_Count_Line_1&amp;hours=3</code> and the <code>TagDetails*</code> tables instead of SQL Server.</p>
+    <h2 style="margin-top:14px">Requests received</h2>
+    <div class="scroll" style="max-height:220px"><table><thead><tr><th>Time</th><th>Table</th><th>Filter</th><th>Rows</th></tr></thead><tbody id="reqs"></tbody></table></div>
+  </section>
+
+  <section class="card">
+    <h2>Settings</h2>
+    <div class="sub" style="margin-bottom:4px">Lines producing (a line switched off starts no new parts)</div>
+    <div style="display:flex;gap:14px;margin-bottom:8px">
+      <label style="margin:0"><input type="checkbox" id="on1"> Line 1</label>
+      <label style="margin:0"><input type="checkbox" id="on2"> Line 2</label>
+      <label style="margin:0"><input type="checkbox" id="on5"> Line 5</label>
+    </div>
+    <label>Speed (x1 = plant timing) <input type="number" id="speed" min="1" max="60" step="1"></label>
+    <label>Takt Line 1 (s) <input type="number" id="takt1" min="20" max="600"></label>
+    <label>Takt Line 2 (s) <input type="number" id="takt2" min="20" max="600"></label>
+    <label>Takt Line 5 (s) <input type="number" id="takt5" min="20" max="600"></label>
+    <label>History on reset (h) <input type="number" id="hist" min="0" max="48"></label>
+    <h2 style="margin-top:12px">Data faults (share 0 – 1)</h2>
+    <label>Empty QR row <input type="number" id="f_emptyQr" min="0" max="1" step="0.005"></label>
+    <label>Junk QR row <input type="number" id="f_junkQr" min="0" max="1" step="0.005"></label>
+    <label>Corrupted time field <input type="number" id="f_corrupt" min="0" max="1" step="0.005"></label>
+    <label>Cell never written <input type="number" id="f_missCell" min="0" max="1" step="0.005"></label>
+    <label>Duplicate row for a QR <input type="number" id="f_duplicate" min="0" max="1" step="0.005"></label>
+    <div style="display:flex;gap:8px;margin-top:10px"><button id="save">Apply</button><span id="saved" class="sub"></span></div>
+  </section>
+
+  <section class="card">
+    <h2>Tables</h2>
+    <div class="tbl"><table><thead><tr><th>Table</th><th>Kind</th><th>Columns</th><th>Rows</th></tr></thead><tbody id="tables"></tbody></table></div>
+    <h2 style="margin-top:14px">Generated so far</h2>
+    <div class="stats" id="stats"></div>
+  </section>
+
+  <section class="card wide">
+    <h2>Latest rows — click one to see its columns</h2>
+    <div class="split">
+      <div class="scroll"><table><thead><tr><th>Line</th><th>ID</th><th>TimeStamp</th><th>QR_Code</th><th>Columns filled</th></tr></thead><tbody id="recent"></tbody></table></div>
+      <div><div class="sub" id="rowTitle">No row selected. <code>·</code> marks a NUL byte, as the PLC writes them.</div><div class="row-detail" id="rowDetail"></div></div>
+    </div>
+  </section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+let S = null, formFilled = false;
+
+$('srcUrl').textContent = `${location.origin}/api/phsupport`;
+
+async function load() {
+  try {
+    S = await (await fetch('/api/phsupport/status')).json();
+  } catch { $('state').textContent = 'offline'; $('state').className = 'pill off'; return; }
+  $('now').textContent = S.now.slice(0, 19);
+  $('state').textContent = S.settings.running ? `running · x${S.settings.speed}` : 'paused';
+  $('state').className = 'pill ' + (S.settings.running ? 'on' : 'off');
+  $('toggle').textContent = S.settings.running ? 'Pause' : 'Resume';
+  $('wip').innerHTML = S.wip.map(w => `<div><b>Line ${w.line}</b> <span class="pill ${w.on ? 'on' : 'off'}">${w.on ? 'producing' : 'stopped'}</span> <span class="sub">· ${esc(w.table)} · ${w.inProgress} parts in progress · ${w.waiting} waiting to finish Cell-01</span>
+    <div class="flow">${w.cells.map(c => `<div class="cell"><span>${esc(c.op)}</span><b>${c.parts}</b><span>${esc(c.cell)}</span></div>`).join('<span class="arrow">→</span>')}</div></div>`).join('');
+  $('tables').innerHTML = S.tables.map(t => `<tr><td class="mono">${esc(t.name)}</td><td>${esc(t.kind)}</td><td>${t.columns}</td><td>${t.rows.toLocaleString()}</td></tr>`).join('');
+  const st = S.stats;
+  $('stats').innerHTML = [['Rows inserted', st.inserted], ['Row updates', st.updated], ['Empty QR', st.emptyQr], ['Junk QR', st.junkQr], ['Corrupted fields', st.corrupted], ['Cells not written', st.missedCells], ['Duplicate rows', st.duplicates]]
+    .map(([k, v]) => `<div class="stat"><span>${k}</span><b>${(v || 0).toLocaleString()}</b></div>`).join('');
+  $('recent').innerHTML = S.recent.sort((a, b) => b.ts.localeCompare(a.ts)).map(r => `<tr class="click" data-line="${r.line}" data-id="${r.id}"><td>${r.line}</td><td>${r.id}</td><td class="mono">${esc(r.ts.slice(11, 19))}</td><td class="mono">${esc(r.qr) || '<span class="muted">(empty)</span>'}</td><td>${r.filled} / ${r.of}</td></tr>`).join('');
+  $('reqs').innerHTML = S.requests.map(r => `<tr><td class="mono">${esc(r.at)}</td><td class="mono">${esc(r.table)}</td><td class="mono">${esc(r.query)}</td><td>${r.rows}</td></tr>`).join('') || '<tr><td colspan="4" class="muted">No requests yet — set this URL in SMES (Production Flow → Source Setup) and press Test connection or Sync.</td></tr>';
+  if (!formFilled) fillForm();
+}
+
+function fillForm() {
+  const s = S.settings;
+  $('speed').value = s.speed; $('takt1').value = s.takt[1]; $('takt2').value = s.takt[2]; $('takt5').value = s.takt[5]; $('hist').value = s.historyHours;
+  for (const k of Object.keys(s.faults)) $('f_' + k).value = s.faults[k];
+  for (const k of Object.keys(s.lines)) $('on' + k).checked = !!s.lines[k];
+  formFilled = true;
+}
+
+async function post(url, body) {
+  const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+  return r.json();
+}
+
+$('save').onclick = async () => {
+  const faults = {}; for (const k of ['emptyQr', 'junkQr', 'corrupt', 'missCell', 'duplicate']) faults[k] = Number($('f_' + k).value);
+  await post('/api/phsupport/settings', { lines: { 1: $('on1').checked, 2: $('on2').checked, 5: $('on5').checked }, speed: Number($('speed').value), historyHours: Number($('hist').value), takt: { 1: Number($('takt1').value), 2: Number($('takt2').value), 5: Number($('takt5').value) }, faults });
+  $('saved').textContent = 'Applied to new parts.'; setTimeout(() => $('saved').textContent = '', 2500);
+  load();
+};
+$('toggle').onclick = async () => { await post('/api/phsupport/settings', { running: !S.settings.running }); load(); };
+$('reset').onclick = async () => { if (!confirm('Regenerate the history and start again? The backend will see new rows.')) return; await post('/api/phsupport/reset'); formFilled = false; load(); };
+$('recent').onclick = async e => {
+  const tr = e.target.closest('tr[data-id]'); if (!tr) return;
+  const table = S.wip.find(w => String(w.line) === tr.dataset.line).table;
+  const r = await (await fetch(`/api/phsupport/row?table=${table}&id=${tr.dataset.id}`)).json();
+  $('rowTitle').textContent = `${table} · ID ${tr.dataset.id} · ${Object.keys(r).length} non-empty columns`;
+  $('rowDetail').textContent = Object.entries(r).map(([k, v]) => `${k.padEnd(30)} ${typeof v === 'string' ? JSON.stringify(v) : v}`).join('\n');
+};
+
+load(); setInterval(load, 2000);
+</script>
+</body>
+</html>

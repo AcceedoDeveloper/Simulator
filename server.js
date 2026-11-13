@@ -29,6 +29,7 @@ const plc = require('./plc');
 const broker = require('./mqttbroker');
 const binsim = require('./binsim');
 const { createBinBoard } = require('./binboard');
+const phsim = require('./phsim');
 
 const PORT = process.env.PORT || 9010;
 const HOST = process.env.HOST || '0.0.0.0';
@@ -284,6 +285,48 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  /* ---- PHSupport SQL simulator (production flow) page + API ----
+   *   GET  /phsupport                         page
+   *   GET  /api/phsupport/tables              table list with row counts
+   *   GET  /api/phsupport/rows?table=Line_1&hours=6 | &day=YYYY-MM-DD | &sinceId=N
+   *                                           rows exactly as SELECT * returns them (what the SMES sync reads)
+   *   GET  /api/phsupport/status              page state
+   *   GET  /api/phsupport/row?table=&id=      one row's non-empty columns
+   *   POST /api/phsupport/settings            { running, speed, takt, faults, historyHours }
+   *   POST /api/phsupport/reset               regenerate history and restart
+   */
+  if (p.startsWith('/api/phsupport')) res.setHeader('Access-Control-Allow-Origin', '*');
+  if (req.method === 'GET' && p === '/phsupport') {
+    fs.readFile(path.join(__dirname, 'phsupport.html'), (e, data) => {
+      if (e) { res.writeHead(500); res.end('phsupport.html not found next to server.js'); return; }
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(data);
+    });
+    return;
+  }
+  if (req.method === 'GET' && p === '/api/phsupport/tables') { sendJson(res, phsim.tableList()); return; }
+  if (req.method === 'GET' && p === '/api/phsupport/rows') {
+    const q = {};
+    for (const k of ['hours', 'day', 'sinceId', 'top']) if (url.searchParams.get(k)) q[k] = url.searchParams.get(k);
+    const out = phsim.rows(String(url.searchParams.get('table') || ''), q, req.headers['user-agent'] || '');
+    sendJson(res, out, out.error ? 404 : 200);
+    return;
+  }
+  if (req.method === 'GET' && p === '/api/phsupport/status') { sendJson(res, phsim.getStatus()); return; }
+  if (req.method === 'GET' && p === '/api/phsupport/row') {
+    const r = phsim.rowDetail(String(url.searchParams.get('table') || ''), url.searchParams.get('id'));
+    sendJson(res, r || { error: 'row not found' }, r ? 200 : 404);
+    return;
+  }
+  if (req.method === 'POST' && p === '/api/phsupport/settings') {
+    readBody(req, (b) => {
+      try { sendJson(res, { ok: true, settings: phsim.setSettings(JSON.parse(b || '{}')) }); }
+      catch (err) { sendJson(res, { ok: false, error: err.message }, 400); }
+    });
+    return;
+  }
+  if (req.method === 'POST' && p === '/api/phsupport/reset') { phsim.reset(); sendJson(res, { ok: true }); return; }
+
   /* ---- bin / crane data publisher (topic bin/data) page + API ---- */
   if (req.method === 'GET' && p === '/crane') {
     fs.readFile(path.join(__dirname, 'crane.html'), (e, data) => {
@@ -403,6 +446,10 @@ server.listen(PORT, HOST, () => {
   console.log(`  Furnace/Bunker publisher : http://localhost:${PORT}/furnace`);
   console.log(`  Bin/Crane data publisher : http://localhost:${PORT}/crane   (topic bin/data)`);
   console.log(`  Charge-mix bin board     : http://localhost:${PORT}/bin     (bin/chargemix <-> bin/chargemix/reply)`);
+  console.log(`  PHSupport SQL simulator  : http://localhost:${PORT}/phsupport   (API /api/phsupport/rows?table=Line_1&hours=6)`);
+
+  /* PHSupport simulator: pre-generates history, then runs on the wall clock */
+  try { phsim.start(); } catch (e) { console.error('PHSupport simulator start failed:', e.message); }
 
   /* start the embedded MQTT broker the ESP32 connects to */
   broker.start(MQTT_PORT).catch((e) => console.error('MQTT broker start failed:', e.message));

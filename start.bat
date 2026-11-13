@@ -37,6 +37,7 @@ echo   PLC panel    : http://localhost:9010/plc
 echo   MQTT monitor : http://localhost:9010/mqtt
 echo   Bin/Crane data: http://localhost:9010/crane ^(topic bin/data^)
 echo   Charge-mix bin: http://localhost:9010/bin ^(bin/chargemix, act as software or board^)
+echo   PHSupport SQL : http://localhost:9010/phsupport ^(rows API for the SMES production-flow sync^)
 echo   MQTT broker  : TCP 1883 ^(point ESP32 mqttBroker at this PC's IP^)
 
 REM ensure Windows Firewall allows the ports (needs admin; skipped if not elevated)
